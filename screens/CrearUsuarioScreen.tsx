@@ -36,28 +36,22 @@ const validarFecha = (fecha: string): string | null => {
   if (!fecha.trim()) return null;
   const regex = /^\d{4}-\d{2}-\d{2}$/;
   if (!regex.test(fecha)) return 'Usa el formato AAAA-MM-DD (ej: 2005-08-15).';
-
   const [anioStr, mesStr, diaStr] = fecha.split('-');
   const anio = parseInt(anioStr, 10);
   const mes = parseInt(mesStr, 10);
   const dia = parseInt(diaStr, 10);
   const anioActual = new Date().getFullYear();
-
   if (anio < 1900) return 'El año debe ser mayor.';
   if (anio > anioActual) return `El año no puede ser mayor a ${anioActual}.`;
   if (mes < 1 || mes > 12) return 'El mes debe estar entre 01 y 12.';
-
   const diasPorMes = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   const esBisiesto = (anio % 4 === 0 && anio % 100 !== 0) || anio % 400 === 0;
   const maxDias = mes === 2 && esBisiesto ? 29 : diasPorMes[mes - 1];
-
   if (dia < 1 || dia > maxDias) return `El mes ${mes} tiene máximo ${maxDias} días.`;
-
   const fechaIngresada = new Date(anio, mes - 1, dia);
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
   if (fechaIngresada > hoy) return 'La fecha no puede ser futura.';
-
   return null;
 };
 
@@ -70,9 +64,10 @@ const validarContrasena = (contrasena: string): string | null => {
 
 type Props = {
   onUsuarioCreado: () => void;
+  onVolver: () => void;
 };
 
-export default function CrearUsuarioScreen({ onUsuarioCreado }: Props) {
+export default function CrearUsuarioScreen({ onUsuarioCreado, onVolver }: Props) {
   const [nombre, setNombre] = useState('');
   const [contrasena, setContrasena] = useState('');
   const [peso, setPeso] = useState('');
@@ -82,13 +77,10 @@ export default function CrearUsuarioScreen({ onUsuarioCreado }: Props) {
   const handleGuardar = async () => {
     const errorNombre = validarNombre(nombre);
     if (errorNombre) return Alert.alert('Nombre inválido', errorNombre);
-
     const errorContrasena = validarContrasena(contrasena);
     if (errorContrasena) return Alert.alert('Contraseña inválida', errorContrasena);
-
     const errorPeso = validarPeso(peso);
     if (errorPeso) return Alert.alert('Peso inválido', errorPeso);
-
     const errorFecha = validarFecha(fechaNacimiento);
     if (errorFecha) return Alert.alert('Fecha inválida', errorFecha);
 
@@ -109,81 +101,93 @@ export default function CrearUsuarioScreen({ onUsuarioCreado }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <LinearGradient
-          colors={['#308be6', '#d7fbcf']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.header}
-        >
-          <Text style={styles.appName}>SYTECYCLE</Text>
-          <Text style={styles.saludo}>¡Bienvenido/a!</Text>
-          <Text style={styles.subtitulo}>
-            Cuéntanos un poco sobre ti para empezar.
-          </Text>
-        </LinearGradient>
-
-        <View style={styles.form}>
-          <Text style={styles.label}>Nombre</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ingresa tu nombre."
-            value={nombre}
-            onChangeText={setNombre}
-            maxLength={50}
-          />
-
-          <Text style={styles.label}>Contraseña</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Mínimo 4 caracteres"
-            value={contrasena}
-            onChangeText={setContrasena}
-            secureTextEntry
-            maxLength={50}
-          />
-
-          <Text style={styles.label}>Peso (kg)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="00.0"
-            value={peso}
-            onChangeText={setPeso}
-            keyboardType="decimal-pad"
-            maxLength={6}
-          />
-
-          <Text style={styles.label}>Fecha de nacimiento</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="AAAA-MM-DD"
-            value={fechaNacimiento}
-            onChangeText={setFechaNacimiento}
-            keyboardType="numbers-and-punctuation"
-            maxLength={10}
-          />
-
-          <TouchableOpacity
-            style={styles.boton}
-            onPress={handleGuardar}
-            disabled={guardando}
+    <View style={styles.container}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
+          <LinearGradient
+            colors={['#308be6', '#d7fbcf']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.header}
           >
-            <Text style={styles.botonTexto}>
-              {guardando ? 'Guardando...' : 'Continuar'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+            <Text style={styles.appName}>SYTECYCLE</Text>
+            <Text style={styles.saludo}>¡Bienvenido/a!</Text>
+            <Text style={styles.subtitulo}>Cuéntanos un poco sobre ti para empezar.</Text>
+          </LinearGradient>
+
+          <View style={styles.form}>
+            <Text style={styles.label}>Nombre</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ingresa tu nombre."
+              placeholderTextColor="#aaa"
+              value={nombre}
+              onChangeText={setNombre}
+              maxLength={50}
+            />
+
+            <Text style={styles.label}>Contraseña</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Mínimo 4 caracteres"
+              placeholderTextColor="#aaa"
+              value={contrasena}
+              onChangeText={setContrasena}
+              secureTextEntry
+              maxLength={50}
+            />
+
+            <Text style={styles.label}>Peso (kg)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="00.0"
+              placeholderTextColor="#aaa"
+              value={peso}
+              onChangeText={setPeso}
+              keyboardType="decimal-pad"
+              maxLength={6}
+            />
+
+            <Text style={styles.label}>Fecha de nacimiento</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="AAAA-MM-DD"
+              placeholderTextColor="#aaa"
+              value={fechaNacimiento}
+              onChangeText={setFechaNacimiento}
+              keyboardType="numbers-and-punctuation"
+              maxLength={10}
+            />
+
+            <TouchableOpacity style={styles.boton} onPress={handleGuardar} disabled={guardando}>
+              <Text style={styles.botonTexto}>{guardando ? 'Guardando...' : 'Continuar'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.botonSecundario} onPress={onVolver} disabled={guardando}>
+              <Text style={styles.botonSecundarioTexto}>Volver al inicio</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      {/* Línea decorativa - FUERA del KeyboardAvoidingView */}
+      <View style={styles.lineaDecorativaContainer} pointerEvents="none">
+        <LinearGradient
+          colors={['transparent', '#308be6', '#d7fbcf', 'transparent']}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={styles.lineaDecorativa}
+        />
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { flexGrow: 1, backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: '#fff' },
   header: {
     paddingTop: 70,
     paddingBottom: 40,
@@ -191,49 +195,28 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
   },
-  appName: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#fff',
-    letterSpacing: 2,
-    paddingLeft: 10,
-  },
-  saludo: {
-    fontSize: 20,
-    color: '#fff',
-    marginTop: 18,
-    fontWeight: '600',
-    paddingLeft: 10,
-  },
-  subtitulo: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.85)',
-    marginTop: 14,
-    paddingLeft: 10,
-  },
+  appName: { fontSize: 32, fontWeight: 'bold', color: '#fff', letterSpacing: 2, paddingLeft: 10 },
+  saludo: { fontSize: 20, color: '#fff', marginTop: 18, fontWeight: '600', paddingLeft: 10 },
+  subtitulo: { fontSize: 14, color: 'rgba(255,255,255,0.85)', marginTop: 14, paddingLeft: 10 },
   form: { padding: 24, gap: 8 },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 16,
-    marginBottom: 4,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    backgroundColor: '#fafafa',
-  },
-  boton: {
-    marginTop: 32,
-    backgroundColor: '#308be6',
-    paddingVertical: 16,
-    borderRadius: 12,
+  label: { fontSize: 14, fontWeight: '600', color: '#333', marginTop: 16, marginBottom: 4 },
+  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, backgroundColor: '#fafafa' },
+  boton: { marginTop: 32, backgroundColor: '#308be6', paddingVertical: 16, borderRadius: 12, alignItems: 'center' },
+  botonTexto: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  botonSecundario: { marginTop: 12, backgroundColor: '#fff', paddingVertical: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1.5, borderColor: '#cbd5e0' },
+  botonSecundarioTexto: { color: '#4a5568', fontSize: 14, fontWeight: '600' },
+
+  // Línea decorativa
+  lineaDecorativaContainer: {
+    position: 'absolute',
+    bottom: 30,
+    left: 0,
+    right: 0,
     alignItems: 'center',
   },
-  botonTexto: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  lineaDecorativa: {
+    width: '60%',
+    height: 3,
+    borderRadius: 2,
+  },
 });

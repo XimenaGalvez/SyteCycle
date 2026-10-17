@@ -8,6 +8,17 @@ export const generarId = (): string => {
 
 export const initDatabase = async () => {
   try {
+    // ⚠️ TEMPORAL: Borrar tablas viejas con estructura incorrecta
+    // Esto se puede quitar después de la primera ejecución exitosa
+    await db.execAsync(`DROP TABLE IF EXISTS aplicacion_insulina`);
+    await db.execAsync(`DROP TABLE IF EXISTS dosis_insulina`);
+    await db.execAsync(`DROP TABLE IF EXISTS insulina`);
+    await db.execAsync(`DROP TABLE IF EXISTS toma_medicamento`);
+    await db.execAsync(`DROP TABLE IF EXISTS medicamento`);
+    await db.execAsync(`DROP TABLE IF EXISTS recordatorio`);
+    console.log('🗑️ Tablas limpiadas para migración');
+
+    // ============ TABLA USUARIO ============
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS usuario (
         id_usuario TEXT PRIMARY KEY,
@@ -21,8 +32,6 @@ export const initDatabase = async () => {
           OR (
             LENGTH(fecha_nacimiento) = 10
             AND fecha_nacimiento GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-            AND CAST(SUBSTR(fecha_nacimiento, 6, 2) AS INTEGER) BETWEEN 1 AND 12
-            AND CAST(SUBSTR(fecha_nacimiento, 9, 2) AS INTEGER) BETWEEN 1 AND 31
           )
         ),
         peso REAL CHECK (peso IS NULL OR peso > 0),
@@ -34,16 +43,12 @@ export const initDatabase = async () => {
       );
     `);
 
+    // ============ TABLA INSULINA (NUEVA ESTRUCTURA) ============
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS insulina (
         id_insulina TEXT PRIMARY KEY,
         nombre TEXT NOT NULL CHECK (LENGTH(TRIM(nombre)) > 0),
         tipo TEXT NOT NULL CHECK (tipo IN ('Rápida', 'Lenta', 'Intermedia')),
-        unidades_indicadas REAL NOT NULL CHECK (unidades_indicadas > 0),
-        horario TEXT NOT NULL CHECK (
-          LENGTH(horario) = 5
-          AND horario GLOB '[0-9][0-9]:[0-9][0-9]'
-        ),
         caducidad TEXT CHECK (
           caducidad IS NULL
           OR (
@@ -51,10 +56,27 @@ export const initDatabase = async () => {
             AND caducidad GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
           )
         ),
-        notas TEXT
+        notas TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
+    // ============ TABLA DOSIS_INSULINA (NUEVA) ============
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS dosis_insulina (
+        id_dosis TEXT PRIMARY KEY,
+        insulina_id TEXT NOT NULL,
+        etiqueta TEXT,
+        horario TEXT NOT NULL CHECK (
+          LENGTH(horario) = 5
+          AND horario GLOB '[0-9][0-9]:[0-9][0-9]'
+        ),
+        unidades REAL NOT NULL CHECK (unidades > 0),
+        FOREIGN KEY (insulina_id) REFERENCES insulina (id_insulina)
+      );
+    `);
+
+    // ============ TABLA MEDICAMENTO ============
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS medicamento (
         id_medicamento TEXT PRIMARY KEY,
@@ -73,14 +95,18 @@ export const initDatabase = async () => {
           )
         ),
         indicaciones TEXT,
-        activo INTEGER DEFAULT 1 CHECK (activo IN (0, 1))
+        activo INTEGER DEFAULT 1 CHECK (activo IN (0, 1)),
+        duracion_dias INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
+    // ============ TABLA APLICACION_INSULINA ============
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS aplicacion_insulina (
         id_aplicacion_insulina TEXT PRIMARY KEY,
         insulina_id TEXT NOT NULL,
+        dosis_id TEXT,
         unidades REAL NOT NULL CHECK (unidades > 0),
         fecha TEXT NOT NULL CHECK (
           LENGTH(fecha) = 10
@@ -97,6 +123,7 @@ export const initDatabase = async () => {
       );
     `);
 
+    // ============ TABLA TOMA_MEDICAMENTO ============
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS toma_medicamento (
         id_toma_medicamento TEXT PRIMARY KEY,
@@ -117,6 +144,7 @@ export const initDatabase = async () => {
       );
     `);
 
+    // ============ TABLA RECORDATORIO ============
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS recordatorio (
         id_recordatorio TEXT PRIMARY KEY,
@@ -131,8 +159,8 @@ export const initDatabase = async () => {
       );
     `);
 
-    console.log('Base de datos SyteCycle inicializada');
+    console.log('✅ Base de datos SyteCycle inicializada con estructura nueva');
   } catch (error) {
-    console.error('Error al inicializar la base de datos:', error);
+    console.error('❌ Error al inicializar:', error);
   }
 };

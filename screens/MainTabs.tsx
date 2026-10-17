@@ -1,57 +1,50 @@
+import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-
+import { Platform } from 'react-native'; // <-- Agregamos Platform
 import HomeScreen from './HomeScreen';
 import TratamientoScreen from './TratamientoScreen';
 import HistorialScreen from './HistorialScreen';
 import PerfilScreen from './PerfilScreen';
-
-export type MainTabParamList = {
-  Inicio: undefined;
-  Tratamiento: undefined;
-  Historial: undefined;
-  Perfil: undefined;
-};
-
-const Tab = createBottomTabNavigator<MainTabParamList>();
 
 type Props = {
   onCerrarSesion: () => void;
   onCuentaEliminada: () => void;
 };
 
+const Tab = createBottomTabNavigator();
+
 export default function MainTabs({ onCerrarSesion, onCuentaEliminada }: Props) {
   return (
     <Tab.Navigator
-      initialRouteName="Inicio"
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: '#308be6',
-        tabBarInactiveTintColor: '#9aa0a6',
+        tabBarInactiveTintColor: '#a0aec0',
         tabBarStyle: {
-          position: 'absolute',
-          bottom: 12,
-          left: 12,
-          right: 12,
-          height: 60,
-          borderRadius: 20,
-          paddingBottom: 6,
-          paddingTop: 6,
-          borderTopWidth: 0,
+          height: Platform.OS === 'ios' ? 80 : 85, // Altura total del menú
+          paddingBottom: Platform.OS === 'ios' ? 30 : 15, // Espacio abajo (lo sube)
+          paddingTop: 8, // Espacio arriba
+          borderTopWidth: 1,
+          borderTopColor: '#edf2f7',
           backgroundColor: '#fff',
-          elevation: 12,
+          elevation: 6,
           shadowColor: '#000',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.15,
-          shadowRadius: 10,
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 5,
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+          marginBottom: Platform.OS === 'ios' ? 0 : 5, // Ajuste para el texto
+        },
         tabBarIcon: ({ color, size }) => {
           let iconName: any = 'home-outline';
           if (route.name === 'Inicio') iconName = 'home-outline';
-          if (route.name === 'Tratamiento') iconName = 'medkit-outline';
-          if (route.name === 'Historial') iconName = 'time-outline';
-          if (route.name === 'Perfil') iconName = 'person-outline';
+          else if (route.name === 'Tratamiento') iconName = 'medkit-outline';
+          else if (route.name === 'Historial') iconName = 'time-outline';
+          else if (route.name === 'Perfil') iconName = 'person-outline';
           return <Ionicons name={iconName} size={size} color={color} />;
         },
       })}
@@ -61,10 +54,16 @@ export default function MainTabs({ onCerrarSesion, onCuentaEliminada }: Props) {
       </Tab.Screen>
 
       <Tab.Screen name="Tratamiento" component={TratamientoScreen} />
+
       <Tab.Screen name="Historial" component={HistorialScreen} />
 
       <Tab.Screen name="Perfil">
-        {() => <PerfilScreen onCuentaEliminada={onCuentaEliminada} />}
+        {() => (
+          <PerfilScreen
+            onCerrarSesion={onCerrarSesion}
+            onCuentaEliminada={onCuentaEliminada}
+          />
+        )}
       </Tab.Screen>
     </Tab.Navigator>
   );

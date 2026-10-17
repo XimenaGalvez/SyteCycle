@@ -28,6 +28,16 @@ export default function BienvenidaScreen({ onCrearCuenta, onIniciarSesion }: Pro
           <Text style={styles.botonSecundarioTexto}>Crear cuenta</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Línea decorativa inferior */}
+      <View style={styles.lineaDecorativaContainer}>
+        <LinearGradient
+          colors={['transparent', '#308be6', '#d7fbcf', 'transparent']}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={styles.lineaDecorativa}
+        />
+      </View>
     </View>
   );
 }
@@ -71,4 +81,18 @@ const styles = StyleSheet.create({
     borderColor: '#308be6',
   },
   botonSecundarioTexto: { color: '#308be6', fontSize: 16, fontWeight: 'bold' },
+  
+  // Línea decorativa
+  lineaDecorativaContainer: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  lineaDecorativa: {
+    width: '60%',
+    height: 3,
+    borderRadius: 2,
+  },
 });

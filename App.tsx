@@ -3,6 +3,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { initDatabase } from './database/db';
 import { obtenerUsuario } from './database/queries';
+import { pedirPermisosNotificaciones } from './utils/notifications';
 import BienvenidaScreen from './screens/BienvenidaScreen';
 import CrearUsuarioScreen from './screens/CrearUsuarioScreen';
 import LoginScreen from './screens/LoginScreen';
@@ -18,8 +19,8 @@ export default function App() {
     const setup = async () => {
       try {
         await initDatabase();
+        await pedirPermisosNotificaciones();
         const usuario = await obtenerUsuario();
-        // Si ya hay usuario → login, si no → bienvenida
         setPantalla(usuario !== null ? 'login' : 'bienvenida');
       } catch (error) {
         console.error('Error al iniciar:', error);
@@ -52,18 +53,20 @@ export default function App() {
     return (
       <CrearUsuarioScreen
         onUsuarioCreado={() => setPantalla('home')}
+        onVolver={() => setPantalla('bienvenida')}  // <-- ESTO ES CLAVE
       />
     );
   }
 
   if (pantalla === 'login') {
-     return (
+    return (
       <LoginScreen
-      onLoginExitoso={() => setPantalla('home')}
-      onVolver={() => setPantalla('bienvenida')}
+        onLoginExitoso={() => setPantalla('home')}
+        onVolver={() => setPantalla('bienvenida')}
       />
     );
   }
+
   return (
     <NavigationContainer>
       <MainTabs
