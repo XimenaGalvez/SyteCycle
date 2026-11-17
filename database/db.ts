@@ -8,15 +8,6 @@ export const generarId = (): string => {
 
 export const initDatabase = async () => {
   try {
-    // ⚠️ TEMPORAL: Borrar tablas viejas con estructura incorrecta
-    // Esto se puede quitar después de la primera ejecución exitosa
-    await db.execAsync(`DROP TABLE IF EXISTS aplicacion_insulina`);
-    await db.execAsync(`DROP TABLE IF EXISTS dosis_insulina`);
-    await db.execAsync(`DROP TABLE IF EXISTS insulina`);
-    await db.execAsync(`DROP TABLE IF EXISTS toma_medicamento`);
-    await db.execAsync(`DROP TABLE IF EXISTS medicamento`);
-    await db.execAsync(`DROP TABLE IF EXISTS recordatorio`);
-    console.log('🗑️ Tablas limpiadas para migración');
 
     // ============ TABLA USUARIO ============
     await db.execAsync(`

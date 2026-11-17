@@ -15,6 +15,8 @@ import { obtenerUsuario, Usuario } from '../database/queries';
 import { db, generarId } from '../database/db';
 import { escucharTratamientoActualizado } from '../utils/events';
 import CirculoProgreso from '../utils/CirculoProgreso';
+import CuerpoHumano from '../utils/CuerpoHumano';
+import MiniMapaRotaSitio from '../utils/MiniMapaRotaSitio';
 
 type Props = {
   onCerrarSesion: () => void;
@@ -623,6 +625,13 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
                 </View>
               )}
 
+              {insulinaReferencia && insulinaReferencia.notas && (
+               <MiniMapaRotaSitio 
+                  zona={zonaReferencia as any} 
+                  puntoUsado={puntoReferencia === 1 ? 8 : puntoReferencia - 1} 
+/>
+            )}
+
               {insulinaReferencia && (
                 <View style={styles.proximaSitioContainer}>
                   <Text style={styles.proximaSitioLabel}>
@@ -826,42 +835,14 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
               </View>
             )}
 
-            <Text style={styles.labelZona}>Zona del RotaSitio:</Text>
-            <View style={styles.selectorZona}>
-              {(['abdomen', 'brazo', 'muslo'] as const).map((z) => (
-                <TouchableOpacity 
-                  key={z} 
-                  style={[styles.botonZona, zonaSeleccionada === z && styles.botonZonaActivo]} 
-                  onPress={() => setZonaSeleccionada(z)}
-                >
-                  <Text style={[styles.textoZona, zonaSeleccionada === z && styles.textoZonaActivo]}>
-                    {z.charAt(0).toUpperCase() + z.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.labelZona}>Punto (1 al 7):</Text>
-            <View style={styles.selectorPuntos}>
-              {[1, 2, 3, 4, 5, 6, 7].map((p) => {
-                const esSeleccionado = puntoSeleccionado === p;
-                return (
-                  <TouchableOpacity 
-                    key={p} 
-                    style={[
-                      styles.botonPunto,
-                      esSeleccionado && styles.botonPuntoActivo,
-                    ]} 
-                    onPress={() => setPuntoSeleccionado(p)}
-                  >
-                    <Text style={[
-                      styles.textoPunto,
-                      esSeleccionado && styles.textoPuntoActivo,
-                    ]}>{p}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            <Text style={styles.labelZona}>Selecciona la zona y el punto de aplicación:</Text>
+            
+            <CuerpoHumano 
+              zonaSeleccionada={zonaSeleccionada}
+              puntoSeleccionado={puntoSeleccionado}
+              onSelectZona={(z) => setZonaSeleccionada(z)}
+              onSelectPunto={(p) => setPuntoSeleccionado(p)}
+            />
 
             {infoPuntoActual.usadoReciente && (
               <View style={[
