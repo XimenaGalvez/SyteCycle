@@ -11,7 +11,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { obtenerUsuario, Usuario } from '../database/queries';
+import { obtenerUsuario, obtenerUsuarioActivo, Usuario } from '../database/queries';
 import { db, generarId } from '../database/db';
 import { escucharTratamientoActualizado } from '../utils/events';
 import CirculoProgreso from '../utils/CirculoProgreso';
@@ -78,8 +78,7 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
   const [zonaSeleccionada, setZonaSeleccionada] = useState<'abdomen' | 'brazo' | 'muslo'>('abdomen');
   const [puntoSeleccionado, setPuntoSeleccionado] = useState<number>(1);
   const [infoPuntoActual, setInfoPuntoActual] = useState<InfoPunto>({ usadoReciente: false, diasDesdeUso: null, nivel: 'ok' });
-
-
+  const [puntosUsados, setPuntosUsados] = useState<number[]>([]);
   const getFechaLocal = () => {
     const d = new Date();
     const año = d.getFullYear();
@@ -88,20 +87,29 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
     return `${año}-${mes}-${dia}`;
   };
 
-
   const cargarDatosHome = async () => {
     try {
       const u = await obtenerUsuario();
       setUsuario(u);
 
+      const userId = await obtenerUsuarioActivo();
+      if (!userId) return;
+
       const resInsulinas = await db.getAllAsync<Insulina>(
-        'SELECT * FROM insulina ORDER BY created_at DESC'
+        'SELECT * FROM insulina WHERE id_usuario = ? ORDER BY created_at DESC',
+        [userId]
       );
+      
       const resDosis = await db.getAllAsync<Dosis>(
-        'SELECT * FROM dosis_insulina ORDER BY horario ASC'
+        `SELECT d.* FROM dosis_insulina d 
+         INNER JOIN insulina i ON d.insulina_id = i.id_insulina 
+         WHERE i.id_usuario = ? ORDER BY d.horario ASC`,
+        [userId]
       );
+      
       const resMeds = await db.getAllAsync<Medicamento>(
-        `SELECT * FROM medicamento WHERE activo = 1 ORDER BY horario ASC`
+        `SELECT * FROM medicamento WHERE id_usuario = ? AND activo = 1 ORDER BY horario ASC`,
+        [userId]
       );
       
       setInsulinas(resInsulinas);
@@ -114,13 +122,17 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
 
   const cargarTomasHoy = async () => {
     try {
+      const userId = await obtenerUsuarioActivo();
+      if (!userId) return;
+
       const hoy = getFechaLocal();
       const tomas = await db.getAllAsync<{ medicamento_id: string; total: number }>(
-        `SELECT medicamento_id, COUNT(*) as total 
-         FROM toma_medicamento 
-         WHERE fecha = ? AND estado = 'Realizado'
-         GROUP BY medicamento_id`,
-        [hoy]
+        `SELECT t.medicamento_id, COUNT(*) as total 
+         FROM toma_medicamento t
+         INNER JOIN medicamento m ON t.medicamento_id = m.id_medicamento
+         WHERE t.fecha = ? AND t.estado = 'Realizado' AND m.id_usuario = ?
+         GROUP BY t.medicamento_id`,
+        [hoy, userId]
       );
       const mapa: { [key: string]: number } = {};
       tomas.forEach(t => { mapa[t.medicamento_id] = t.total; });
@@ -132,10 +144,16 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
 
   const cargarAplicacionesHoy = async () => {
     try {
+      const userId = await obtenerUsuarioActivo();
+      if (!userId) return;
+
       const hoy = getFechaLocal();
       const aplicaciones = await db.getAllAsync<{ dosis_id: string; hora: string }>(
-        `SELECT dosis_id, hora FROM aplicacion_insulina WHERE fecha = ?`,
-        [hoy]
+        `SELECT a.dosis_id, a.hora 
+         FROM aplicacion_insulina a
+         INNER JOIN insulina i ON a.insulina_id = i.id_insulina
+         WHERE a.fecha = ? AND i.id_usuario = ?`,
+        [hoy, userId]
       );
       const mapa: { [key: string]: { hora: string } } = {};
       aplicaciones.forEach(a => { 
@@ -147,9 +165,6 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
     }
   };
 
-  // ============================================================
-  // HELPERS MEDICAMENTOS
-  // ============================================================
   const tomasPorDia = (frecuencia: string): number => {
     const f = frecuencia.toLowerCase();
     if (f.includes('cada 12')) return 2;
@@ -171,9 +186,6 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
     return dias >= med.duracion_dias;
   };
 
-  // ============================================================
-  // ADHERENCIA HOY
-  // ============================================================
   const calcularAdherenciaHoy = useCallback((): number => {
     let totalEsperadas = 0;
     let totalRealizadas = 0;
@@ -195,11 +207,11 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
     return Math.round((totalRealizadas / totalEsperadas) * 100);
   }, [dosisTodas, aplicacionesHoy, medicamentos, tomasHoy]);
 
-  // ============================================================
-  // ADHERENCIA SEMANAL (CON useCallback)
-  // ============================================================
   const calcularAdherenciaSemanal = useCallback(async (): Promise<number> => {
     try {
+      const userId = await obtenerUsuarioActivo();
+      if (!userId) return 0;
+
       const hoy = new Date();
       const hace7Dias = new Date(hoy);
       hace7Dias.setDate(hace7Dias.getDate() - 6);
@@ -214,8 +226,10 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
       if (dosisPorDia > 0) {
         totalEsperadas += dosisPorDia * 7;
         const aplicaciones = await db.getAllAsync<{ fecha: string }>(
-          `SELECT fecha FROM aplicacion_insulina WHERE fecha >= ? AND fecha <= ?`,
-          [fechaInicio, fechaFin]
+          `SELECT a.fecha FROM aplicacion_insulina a
+           INNER JOIN insulina i ON a.insulina_id = i.id_insulina
+           WHERE a.fecha >= ? AND a.fecha <= ? AND i.id_usuario = ?`,
+          [fechaInicio, fechaFin, userId]
         );
         totalRealizadas += Math.min(aplicaciones.length, dosisPorDia * 7);
       }
@@ -241,9 +255,6 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
     }
   }, [dosisTodas, medicamentos]);
 
-  // ============================================================
-  // EFECTOS
-  // ============================================================
   const cargarTodo = async () => {
     await cargarDatosHome();
     await cargarTomasHoy();
@@ -281,20 +292,22 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
     return () => { cancelado = true; };
   }, [dosisTodas, medicamentos, aplicacionesHoy, tomasHoy, calcularAdherenciaSemanal]);
 
-  // ============================================================
-  // VERIFICAR PUNTO
-  // ============================================================
   const verificarPuntoReciente = async (zona: string, punto: number): Promise<InfoPunto> => {
     try {
+      const userId = await obtenerUsuarioActivo();
+      if (!userId) return { usadoReciente: false, diasDesdeUso: null, nivel: 'ok' };
+
       const sitioBuscado = `Punto ${punto}`;
 
       const resultado = await db.getFirstAsync<{ fecha: string; hora: string }>(
-        `SELECT fecha, hora FROM aplicacion_insulina 
-         WHERE LOWER(TRIM(zona)) = LOWER(TRIM(?)) 
-           AND LOWER(TRIM(sitio_detalle)) = LOWER(TRIM(?))
-         ORDER BY fecha DESC, hora DESC 
+        `SELECT a.fecha, a.hora FROM aplicacion_insulina a
+         INNER JOIN insulina i ON a.insulina_id = i.id_insulina
+         WHERE LOWER(TRIM(a.zona)) = LOWER(TRIM(?)) 
+           AND LOWER(TRIM(a.sitio_detalle)) = LOWER(TRIM(?))
+           AND i.id_usuario = ?
+         ORDER BY a.fecha DESC, a.hora DESC 
          LIMIT 1`,
-        [zona, sitioBuscado]
+        [zona, sitioBuscado, userId]
       );
 
       if (!resultado) {
@@ -338,9 +351,6 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
     return () => { cancelado = true; };
   }, [zonaSeleccionada, puntoSeleccionado, modalRegistroVisible]);
 
-  // ============================================================
-  // SESIÓN Y MEDICAMENTOS
-  // ============================================================
   const confirmarCerrarSesion = () => {
     Alert.alert(
       'Cerrar sesión',
@@ -442,16 +452,19 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
     return puntoActual >= 7 ? 1 : puntoActual + 1;
   };
 
-  const zonaActual = proximaInsulina?.notas?.match(/Zona:\s*(\w+)/)?.[1] || 'abdomen';
-  const todasAplicadas = dosisDelDia.length > 0 && dosisDelDia.every(d => aplicacionesHoy[d.dosis.id_dosis]);
+  let insulinaReferencia: Insulina | null = null;
+  
+  if (proximaDosis) {
+    insulinaReferencia = proximaDosis.insulina;
+  } else if (insulinas.length > 0) {
+    insulinaReferencia = dosisDelDia.length > 0 ? dosisDelDia[dosisDelDia.length - 1].insulina : insulinas[0];
+  }
 
-  const insulinaReferencia = proximaInsulina || (insulinas.length > 0 ? insulinas[0] : null);
   const zonaReferencia = insulinaReferencia?.notas?.match(/Zona:\s*(\w+)/)?.[1] || 'abdomen';
   const puntoReferencia = insulinaReferencia ? calcularSiguientePunto(insulinaReferencia.notas) : 1;
 
-  // ============================================================
-  // GUARDAR REGISTRO
-  // ============================================================
+  const todasAplicadas = dosisDelDia.length > 0 && dosisDelDia.every(d => aplicacionesHoy[d.dosis.id_dosis]);
+
   const guardarRegistroInyeccion = async () => {
     if (!dosisSeleccionada) {
       Alert.alert('Error', 'No hay una dosis seleccionada.');
@@ -524,18 +537,32 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
     }
   };
 
-  const abrirModalParaDosis = (item: ProximaDosis) => {
+  const abrirModalParaDosis = async (item: ProximaDosis) => {
     setDosisSeleccionada(item);
     const siguientePuntoCalc = calcularSiguientePunto(item.insulina.notas);
     const zonaActualCalc = item.insulina.notas?.match(/Zona:\s*(\w+)/)?.[1] || 'abdomen';
     setPuntoSeleccionado(siguientePuntoCalc);
     setZonaSeleccionada(zonaActualCalc as any);
+
+    try {
+      const idInsulina = item.insulina.id_insulina;
+      const resultados = await db.getAllAsync<{ sitio_detalle: string }>(
+        `SELECT sitio_detalle FROM aplicacion_insulina WHERE insulina_id = ?`, 
+        [idInsulina]
+      );
+      
+      const puntos = resultados
+        .map(r => parseInt(r.sitio_detalle.replace('Punto ', '')))
+        .filter(num => !isNaN(num));
+        
+      setPuntosUsados(puntos);
+    } catch (error) {
+      console.log('Error al obtener puntos usados:', error);
+    }
+    
     setModalRegistroVisible(true);
   };
 
-  // ============================================================
-  // RENDER
-  // ============================================================
   const esUsuarioNuevo = insulinas.length === 0 && medicamentos.length === 0;
   const adherenciaHoyValor = calcularAdherenciaHoy();
 
@@ -605,19 +632,34 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
                         activeOpacity={aplicada ? 1 : 0.7}
                         disabled={!!aplicada}
                       >
-                        <Ionicons name={estadoIcono as any} size={18} color={estadoColor} />
-                        <View style={{ flex: 1, marginLeft: 8 }}>
-                          <Text style={[styles.dosisHora, { color: estadoColor }]}>
-                            {item.dosis.horario} — {item.dosis.unidades} U
-                          </Text>
-                          <Text style={styles.dosisEtiqueta}>
-                            {item.dosis.etiqueta || 'Dosis'} • {item.insulina.nombre} • {estadoTexto}
+                        <Ionicons name={estadoIcono as any} size={20} color={estadoColor} style={{ marginTop: 4 }} />
+                        
+                        {/* Contenedor en columna para apilar los textos */}
+                        <View style={{ flex: 1, marginLeft: 10, justifyContent: 'center' }}>
+                          
+                          {/* Fila 1: Hora, Unidades y Nombre de la insulina */}
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <Text style={[styles.dosisHora, { color: estadoColor, fontSize: 18 }]}>
+                              {item.dosis.horario} — {item.dosis.unidades} U
+                            </Text>
+
+                            <View style={{ backgroundColor: '#e2e8f0', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, marginLeft: 8 }}>
+                              <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#1f4e79' }}>
+                                {item.insulina.nombre}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* Fila 2: Dosis y Estado debajo */}
+                          <Text style={[styles.dosisEtiqueta, { marginTop: 4, fontSize: 13 }]}>
+                            {item.dosis.etiqueta || 'Dosis'} • {estadoTexto}
                           </Text>
                         </View>
+
                         {aplicada ? (
-                          <Ionicons name="checkmark-done" size={18} color="#2e7d32" />
+                          <Ionicons name="checkmark-done" size={20} color="#2e7d32" />
                         ) : (
-                          <Ionicons name="chevron-forward" size={18} color="#a0aec0" />
+                          <Ionicons name="chevron-forward" size={20} color="#a0aec0" />
                         )}
                       </TouchableOpacity>
                     );
@@ -626,11 +668,13 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
               )}
 
               {insulinaReferencia && insulinaReferencia.notas && (
-               <MiniMapaRotaSitio 
+                <MiniMapaRotaSitio 
                   zona={zonaReferencia as any} 
                   puntoUsado={puntoReferencia === 1 ? 8 : puntoReferencia - 1} 
-/>
-            )}
+                  nombreInsulina={insulinaReferencia.nombre}
+                  esSiguienteDosis={todasAplicadas}
+                />
+              )}
 
               {insulinaReferencia && (
                 <View style={styles.proximaSitioContainer}>
@@ -813,72 +857,97 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
         </Text>
       </TouchableOpacity>
 
-      <Modal visible={modalRegistroVisible} animationType="fade" transparent={true}>
+            <Modal visible={modalRegistroVisible} animationType="fade" transparent={true}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeaderDecor}>
-              <Ionicons name="water" size={24} color="#308be6" />
-              <Text style={styles.modalTitulo}>Registrar Aplicación</Text>
-            </View>
-
-            {dosisSeleccionada && (
-              <View style={styles.infoDosis}>
-                <Text style={styles.infoDosisTexto}>
-                  {dosisSeleccionada.insulina.nombre} — {dosisSeleccionada.dosis.unidades} U
-                </Text>
-                <Text style={styles.infoDosisEtiqueta}>
-                  {dosisSeleccionada.dosis.etiqueta || 'Dosis'} • Programada: {dosisSeleccionada.dosis.horario}
-                </Text>
-                <Text style={styles.infoDosisHoraReal}>
-                  Hora de registro: {new Date().toTimeString().slice(0, 5)}
-                </Text>
-              </View>
-            )}
-
-            <Text style={styles.labelZona}>Selecciona la zona y el punto de aplicación:</Text>
+          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
             
-            <CuerpoHumano 
-              zonaSeleccionada={zonaSeleccionada}
-              puntoSeleccionado={puntoSeleccionado}
-              onSelectZona={(z) => setZonaSeleccionada(z)}
-              onSelectPunto={(p) => setPuntoSeleccionado(p)}
-            />
+            {/* ENVOLVEMOS EL CONTENIDO EN UN SCROLLVIEW */}
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 10 }}>
+              
+              <View style={styles.modalHeaderDecor}>
+                <Ionicons name="water" size={24} color="#308be6" />
+                <Text style={styles.modalTitulo}>Registrar Aplicación</Text>
+              </View>
 
-            {infoPuntoActual.usadoReciente && (
-              <View style={[
-                styles.advertenciaPunto,
-                infoPuntoActual.nivel === 'advertencia' 
-                  ? styles.advertenciaRoja 
-                  : styles.advertenciaAmarilla,
-              ]}>
-                <Ionicons 
-                  name="warning" 
-                  size={22} 
-                  color={infoPuntoActual.nivel === 'advertencia' ? '#c53030' : '#c05621'} 
-                />
-                <View style={{ flex: 1, marginLeft: 8 }}>
-                  <Text style={[
-                    styles.advertenciaTitulo,
-                    infoPuntoActual.nivel === 'advertencia' 
-                      ? { color: '#c53030' } 
-                      : { color: '#c05621' },
-                  ]}>
-                    ⚠️ Punto utilizado recientemente
+              {dosisSeleccionada && (
+                <View style={styles.infoDosis}>
+                  <Text style={styles.infoDosisTexto}>
+                    {dosisSeleccionada.insulina.nombre} — {dosisSeleccionada.dosis.unidades} U
                   </Text>
-                  <Text style={styles.advertenciaTexto}>
-                    {infoPuntoActual.diasDesdeUso === 0
-                      ? `Usaste ${zonaSeleccionada} - Punto ${puntoSeleccionado} HOY.`
-                      : infoPuntoActual.diasDesdeUso === 1
-                        ? `Usaste ${zonaSeleccionada} - Punto ${puntoSeleccionado} AYER.`
-                        : `Usaste ${zonaSeleccionada} - Punto ${puntoSeleccionado} hace ${infoPuntoActual.diasDesdeUso} días.`}
+                  <Text style={styles.infoDosisEtiqueta}>
+                    {dosisSeleccionada.dosis.etiqueta || 'Dosis'} • Programada: {dosisSeleccionada.dosis.horario}
                   </Text>
-                  <Text style={styles.advertenciaRecomendacion}>
-                    Revisa tu patrón de rotación. Puedes cambiar el punto o confirmar si esta fue tu aplicación real.
+                  <Text style={styles.infoDosisHoraReal}>
+                    Hora de registro: {new Date().toTimeString().slice(0, 5)}
                   </Text>
                 </View>
-              </View>
-            )}
+              )}
 
+              <Text style={styles.labelZona}>Selecciona la zona y el punto de aplicación:</Text>
+
+              <View style={styles.avisoPuntos}>
+                <Text style={styles.avisoTexto}>
+                   <Text style={{ fontWeight: 'bold' }}>Punto recomendado:</Text> {zonaReferencia.charAt(0).toUpperCase() + zonaReferencia.slice(1)} - Punto {puntoReferencia} 
+                </Text>
+                <Text style={styles.avisoTexto}>
+                   <Text style={{ fontWeight: 'bold' }}>Punto anterior:</Text> {dosisSeleccionada?.insulina.notas || 'No registrado'}
+                </Text>
+              </View>
+              
+              {/* REDUCIMOS UN POCO EL ESPACIO DEL CUERPO HUMANO */}
+              <View style={{ marginVertical: 5 }}>
+                <CuerpoHumano 
+                  zonaSeleccionada={zonaSeleccionada}
+                  puntoSeleccionado={puntoSeleccionado}
+                  onSelectZona={(z) => setZonaSeleccionada(z)}
+                  onSelectPunto={(p) => setPuntoSeleccionado(p)}
+                  puntosUsados={puntosUsados}
+                  puntoAnterior={
+                    dosisSeleccionada?.insulina.notas?.match(/Punto:\s*(\d+)/)?.[1] 
+                      ? parseInt(dosisSeleccionada.insulina.notas.match(/Punto:\s*(\d+)/)![1]) 
+                      : null
+                  }
+                />
+              </View>
+
+              {infoPuntoActual.usadoReciente && (
+                <View style={[
+                  styles.advertenciaPunto,
+                  infoPuntoActual.nivel === 'advertencia' 
+                    ? styles.advertenciaRoja 
+                    : styles.advertenciaAmarilla,
+                ]}>
+                  <Ionicons 
+                    name="warning" 
+                    size={22} 
+                    color={infoPuntoActual.nivel === 'advertencia' ? '#c53030' : '#c05621'} 
+                  />
+                  <View style={{ flex: 1, marginLeft: 8 }}>
+                    <Text style={[
+                      styles.advertenciaTitulo,
+                      infoPuntoActual.nivel === 'advertencia' 
+                        ? { color: '#c53030' } 
+                        : { color: '#c05621' },
+                    ]}>
+                      ⚠️ Punto utilizado recientemente
+                    </Text>
+                    <Text style={styles.advertenciaTexto}>
+                      {infoPuntoActual.diasDesdeUso === 0
+                        ? `Usaste ${zonaSeleccionada} - Punto ${puntoSeleccionado} HOY.`
+                        : infoPuntoActual.diasDesdeUso === 1
+                          ? `Usaste ${zonaSeleccionada} - Punto ${puntoSeleccionado} AYER.`
+                          : `Usaste ${zonaSeleccionada} - Punto ${puntoSeleccionado} hace ${infoPuntoActual.diasDesdeUso} días.`}
+                    </Text>
+                    <Text style={styles.advertenciaRecomendacion}>
+                      Revisa tu patrón de rotación. Puedes cambiar el punto o confirmar si esta fue tu aplicación real.
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+            </ScrollView>
+
+            {/* LOS BOTONES QUEDAN FIJOS ABAJO, FUERA DEL SCROLL */}
             <View style={styles.modalBotones}>
               <TouchableOpacity 
                 style={[styles.botonModal, styles.botonCancelar]} 
@@ -904,6 +973,7 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
                 </Text>
               </TouchableOpacity>
             </View>
+            
           </View>
         </View>
       </Modal>
@@ -1003,7 +1073,7 @@ const styles = StyleSheet.create({
   botonCancelar: { backgroundColor: '#edf2f7', marginRight: 6 },
   botonGuardar: { backgroundColor: '#3182ce', marginLeft: 6 },
   botonTextoCancelar: { color: '#4a5568', fontWeight: 'bold', fontSize: 13 },
-  botonTextoGuardar: { color: '#fff', fontWeight: 'bold', fontSize: 13 },
+  botonTextoGuardar: { color: '#fff', fontWeight: 'bold', fontSize: 13, textAlign: 'center' },
   proximaTitulo: { fontSize: 14, fontWeight: '700', color: '#1f4e79', marginLeft: 6 },
   proximaHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   proximaDetalle: { fontSize: 16, fontWeight: '600', color: '#333', marginTop: 4 },
@@ -1066,4 +1136,17 @@ const styles = StyleSheet.create({
     borderColor: '#c6f6d5' 
   },
   adherenciaSemanalTexto: { fontSize: 13, color: '#22543d', fontWeight: '700', marginLeft: 6 },
+  avisoPuntos: {
+    backgroundColor: '#f7fafc',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  avisoTexto: {
+    fontSize: 12,
+    color: '#4a5568',
+    marginBottom: 4,
+  },
 });

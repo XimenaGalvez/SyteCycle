@@ -1,94 +1,71 @@
 import * as SQLite from 'expo-sqlite';
 
+// ✅ ESTA LÍNEA ES LA QUE FALTA O ESTÁ MAL
 export const db = SQLite.openDatabaseSync('sytecycle.db');
 
 export const generarId = (): string => {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 };
 
+
+
 export const initDatabase = async () => {
   try {
-
+  
     // ============ TABLA USUARIO ============
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS usuario (
         id_usuario TEXT PRIMARY KEY,
-        nombre TEXT NOT NULL CHECK (
-          LENGTH(TRIM(nombre)) >= 2
-          AND nombre NOT GLOB '*[0-9]*'
-        ),
-        contrasena TEXT NOT NULL CHECK (LENGTH(TRIM(contrasena)) >= 4),
-        fecha_nacimiento TEXT CHECK (
-          fecha_nacimiento IS NULL
-          OR (
-            LENGTH(fecha_nacimiento) = 10
-            AND fecha_nacimiento GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-          )
-        ),
-        peso REAL CHECK (peso IS NULL OR peso > 0),
-        relacion_insulina_carbohidrato REAL CHECK (
-          relacion_insulina_carbohidrato IS NULL
-          OR relacion_insulina_carbohidrato > 0
-        ),
+        nombre TEXT NOT NULL,
+        contrasena TEXT NOT NULL,
+        fecha_nacimiento TEXT,
+        peso REAL,
+        relacion_insulina_carbohidrato REAL,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
-    // ============ TABLA INSULINA (NUEVA ESTRUCTURA) ============
+    // ============ TABLA INSULINA (Con id_usuario) ============
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS insulina (
         id_insulina TEXT PRIMARY KEY,
-        nombre TEXT NOT NULL CHECK (LENGTH(TRIM(nombre)) > 0),
-        tipo TEXT NOT NULL CHECK (tipo IN ('Rápida', 'Lenta', 'Intermedia')),
-        caducidad TEXT CHECK (
-          caducidad IS NULL
-          OR (
-            LENGTH(caducidad) = 10
-            AND caducidad GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-          )
-        ),
+        id_usuario TEXT NOT NULL,
+        nombre TEXT NOT NULL,
+        tipo TEXT NOT NULL,
+        caducidad TEXT,
         notas TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (id_usuario) REFERENCES usuario (id_usuario) ON DELETE CASCADE
       );
     `);
 
-    // ============ TABLA DOSIS_INSULINA (NUEVA) ============
+    // ============ TABLA DOSIS_INSULINA ============
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS dosis_insulina (
         id_dosis TEXT PRIMARY KEY,
         insulina_id TEXT NOT NULL,
         etiqueta TEXT,
-        horario TEXT NOT NULL CHECK (
-          LENGTH(horario) = 5
-          AND horario GLOB '[0-9][0-9]:[0-9][0-9]'
-        ),
-        unidades REAL NOT NULL CHECK (unidades > 0),
-        FOREIGN KEY (insulina_id) REFERENCES insulina (id_insulina)
+        horario TEXT NOT NULL,
+        unidades REAL NOT NULL,
+        FOREIGN KEY (insulina_id) REFERENCES insulina (id_insulina) ON DELETE CASCADE
       );
     `);
 
-    // ============ TABLA MEDICAMENTO ============
+    // ============ TABLA MEDICAMENTO (Con id_usuario) ============
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS medicamento (
         id_medicamento TEXT PRIMARY KEY,
-        nombre TEXT NOT NULL CHECK (LENGTH(TRIM(nombre)) > 0),
-        dosis TEXT NOT NULL CHECK (LENGTH(TRIM(dosis)) > 0),
-        frecuencia TEXT NOT NULL CHECK (LENGTH(TRIM(frecuencia)) > 0),
-        horario TEXT NOT NULL CHECK (
-          LENGTH(horario) = 5
-          AND horario GLOB '[0-9][0-9]:[0-9][0-9]'
-        ),
-        caducidad TEXT CHECK (
-          caducidad IS NULL
-          OR (
-            LENGTH(caducidad) = 10
-            AND caducidad GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-          )
-        ),
+        id_usuario TEXT NOT NULL,
+        nombre TEXT NOT NULL,
+        dosis TEXT NOT NULL,
+        frecuencia TEXT NOT NULL,
+        horario TEXT NOT NULL,
+        caducidad TEXT,
         indicaciones TEXT,
-        activo INTEGER DEFAULT 1 CHECK (activo IN (0, 1)),
+        activo INTEGER DEFAULT 1,
         duracion_dias INTEGER DEFAULT 0,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (id_usuario) REFERENCES usuario (id_usuario) ON DELETE CASCADE
       );
     `);
 
@@ -98,19 +75,13 @@ export const initDatabase = async () => {
         id_aplicacion_insulina TEXT PRIMARY KEY,
         insulina_id TEXT NOT NULL,
         dosis_id TEXT,
-        unidades REAL NOT NULL CHECK (unidades > 0),
-        fecha TEXT NOT NULL CHECK (
-          LENGTH(fecha) = 10
-          AND fecha GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-        ),
-        hora TEXT NOT NULL CHECK (
-          LENGTH(hora) = 5
-          AND hora GLOB '[0-9][0-9]:[0-9][0-9]'
-        ),
-        zona TEXT NOT NULL CHECK (zona IN ('abdomen', 'brazo', 'muslo')),
+        unidades REAL NOT NULL,
+        fecha TEXT NOT NULL,
+        hora TEXT NOT NULL,
+        zona TEXT NOT NULL,
         sitio_detalle TEXT,
         notas TEXT,
-        FOREIGN KEY (insulina_id) REFERENCES insulina (id_insulina)
+        FOREIGN KEY (insulina_id) REFERENCES insulina (id_insulina) ON DELETE CASCADE
       );
     `);
 
@@ -119,19 +90,11 @@ export const initDatabase = async () => {
       CREATE TABLE IF NOT EXISTS toma_medicamento (
         id_toma_medicamento TEXT PRIMARY KEY,
         medicamento_id TEXT NOT NULL,
-        fecha TEXT NOT NULL CHECK (
-          LENGTH(fecha) = 10
-          AND fecha GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-        ),
-        hora TEXT NOT NULL CHECK (
-          LENGTH(hora) = 5
-          AND hora GLOB '[0-9][0-9]:[0-9][0-9]'
-        ),
-        estado TEXT NOT NULL DEFAULT 'Pendiente' CHECK (
-          estado IN ('Pendiente', 'Realizado', 'Omitido')
-        ),
+        fecha TEXT NOT NULL,
+        hora TEXT NOT NULL,
+        estado TEXT NOT NULL DEFAULT 'Pendiente',
         notas TEXT,
-        FOREIGN KEY (medicamento_id) REFERENCES medicamento (id_medicamento)
+        FOREIGN KEY (medicamento_id) REFERENCES medicamento (id_medicamento) ON DELETE CASCADE
       );
     `);
 
@@ -139,18 +102,15 @@ export const initDatabase = async () => {
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS recordatorio (
         id_recordatorio TEXT PRIMARY KEY,
-        tipo TEXT NOT NULL CHECK (tipo IN ('Insulina', 'Medicamento', 'Caducidad')),
+        tipo TEXT NOT NULL,
         referencia_id TEXT NOT NULL,
-        hora TEXT NOT NULL CHECK (
-          LENGTH(hora) = 5
-          AND hora GLOB '[0-9][0-9]:[0-9][0-9]'
-        ),
-        activo INTEGER DEFAULT 1 CHECK (activo IN (0, 1)),
+        hora TEXT NOT NULL,
+        activo INTEGER DEFAULT 1,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
-    console.log('✅ Base de datos SyteCycle inicializada con estructura nueva');
+    console.log('✅ Base de datos actualizada con soporte multi-usuario');
   } catch (error) {
     console.error('❌ Error al inicializar:', error);
   }

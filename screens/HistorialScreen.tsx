@@ -78,7 +78,6 @@ export default function HistorialScreen() {
 
       setAplicaciones(enriquecidas);
 
-      console.log('📚 Historial cargado:', enriquecidas.length, 'aplicaciones');
     } catch (error) {
       console.error('Error al cargar historial:', error);
     }

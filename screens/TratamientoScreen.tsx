@@ -1,15 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Modal,
-  Animated,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal, Animated,
 } from 'react-native';
 import { db, generarId } from '../database/db';
+import { obtenerUsuarioActivo } from '../database/queries';
 import { Ionicons } from '@expo/vector-icons';
 import { emitirTratamientoActualizado } from '../utils/events';
 import { 
@@ -20,48 +14,12 @@ import {
 } from '../utils/notifications';
 import TimePicker from '../utils/TimePicker';
 
-type Insulina = {
-  id_insulina: string;
-  nombre: string;
-  tipo: string;
-  caducidad: string | null;
-  notas: string | null;
-};
+type Insulina = { id_insulina: string; nombre: string; tipo: string; caducidad: string | null; notas: string | null; };
+type Dosis = { id_dosis?: string; etiqueta: string; horario: string; unidades: string; };
+type DosisDB = { id_dosis: string; insulina_id: string; etiqueta: string | null; horario: string; unidades: number; };
+type Medicamento = { id_medicamento: string; nombre: string; dosis: string; frecuencia: string; horario: string; caducidad: string | null; indicaciones: string | null; activo: number; duracion_dias?: number; created_at?: string; };
 
-type Dosis = {
-  id_dosis?: string;
-  etiqueta: string;
-  horario: string;
-  unidades: string;
-};
-
-type DosisDB = {
-  id_dosis: string;
-  insulina_id: string;
-  etiqueta: string | null;
-  horario: string;
-  unidades: number;
-};
-
-type Medicamento = {
-  id_medicamento: string;
-  nombre: string;
-  dosis: string;
-  frecuencia: string;
-  horario: string;
-  caducidad: string | null;
-  indicaciones: string | null;
-  activo: number;
-  duracion_dias?: number;
-  created_at?: string;
-};
-
-const OPCIONES_FRECUENCIA = [
-  'Una vez al día',
-  'Cada 12 horas',
-  'Cada 8 horas',
-  'Cada 6 horas',
-] as const;
+const OPCIONES_FRECUENCIA = ['Una vez al día', 'Cada 12 horas', 'Cada 8 horas', 'Cada 6 horas'] as const;
 
 export default function TratamientoScreen() {
   const [insulinas, setInsulinas] = useState<Insulina[]>([]);
@@ -71,7 +29,6 @@ export default function TratamientoScreen() {
   
   const [modalInsulinaVisible, setModalInsulinaVisible] = useState(false);
   const [modalMedVisible, setModalMedVisible] = useState(false);
-
   const [modalEliminarInsVisible, setModalEliminarInsVisible] = useState(false);
   const [modalEliminarMedVisible, setModalEliminarMedVisible] = useState(false);
   const [itemAEliminar, setItemAEliminar] = useState<{ id: string; nombre: string } | null>(null);
@@ -79,21 +36,16 @@ export default function TratamientoScreen() {
   const [idEditandoInsulina, setIdEditandoInsulina] = useState<string | null>(null);
   const [idEditandoMed, setIdEditandoMed] = useState<string | null>(null);
 
-  // Estados Formulario Insulina
   const [nombreIns, setNombreIns] = useState('');
   const [tipoIns, setTipoIns] = useState('Rápida');
   const [caducidadIns, setCaducidadIns] = useState('');
-  const [dosis, setDosis] = useState<Dosis[]>([
-    { etiqueta: 'Dosis 1', horario: '', unidades: '' }
-  ]);
+  const [dosis, setDosis] = useState<Dosis[]>([{ etiqueta: 'Dosis 1', horario: '', unidades: '' }]);
   const [errorInsulina, setErrorInsulina] = useState<string | null>(null);
 
-  // Estados RotaSitio inicial
   const [yaAplicadoAntes, setYaAplicadoAntes] = useState<boolean | null>(null);
   const [zonaInicial, setZonaInicial] = useState<'abdomen' | 'brazo' | 'muslo'>('abdomen');
   const [puntoInicial, setPuntoInicial] = useState<number>(1);
 
-  // Estados Formulario Medicamento
   const [nombreMed, setNombreMed] = useState('');
   const [dosisMed, setDosisMed] = useState('');
   const [frecuenciaMed, setFrecuenciaMed] = useState('Una vez al día');
@@ -117,15 +69,21 @@ export default function TratamientoScreen() {
 
   const cargarTratamientos = async () => {
     try {
-      const resInsulinas = await db.getAllAsync<Insulina>('SELECT * FROM insulina ORDER BY created_at DESC');
-      const resMeds = await db.getAllAsync<Medicamento>('SELECT * FROM medicamento');
+      const userId = await obtenerUsuarioActivo();
+      if (!userId) return;
+
+      // FILTRO CRUCIAL POR ID DE USUARIO
+      const resInsulinas = await db.getAllAsync<Insulina>(
+        'SELECT * FROM insulina WHERE id_usuario = ? ORDER BY created_at DESC', [userId]
+      );
+      const resMeds = await db.getAllAsync<Medicamento>(
+        'SELECT * FROM medicamento WHERE id_usuario = ?', [userId]
+      );
       
-      // Cargar dosis de cada insulina
       const dosisMap: { [key: string]: DosisDB[] } = {};
       for (const ins of resInsulinas) {
         const dosis = await db.getAllAsync<DosisDB>(
-          'SELECT * FROM dosis_insulina WHERE insulina_id = ? ORDER BY horario ASC',
-          [ins.id_insulina]
+          'SELECT * FROM dosis_insulina WHERE insulina_id = ? ORDER BY horario ASC', [ins.id_insulina]
         );
         dosisMap[ins.id_insulina] = dosis;
       }
@@ -138,14 +96,11 @@ export default function TratamientoScreen() {
     }
   };
 
-  useEffect(() => {
-    cargarTratamientos();
-  }, []);
+  useEffect(() => { cargarTratamientos(); }, []);
 
   const verificarCaducidad = (fechaStr: string | null) => {
     if (!fechaStr) return 'ok';
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
     const fechaCaducidad = new Date(fechaStr + 'T00:00:00');
     const diferenciaDias = Math.ceil((fechaCaducidad.getTime() - hoy.getTime()) / (1000 * 3600 * 24));
     if (diferenciaDias < 0) return 'caducado';
@@ -157,109 +112,66 @@ export default function TratamientoScreen() {
     if (!notas) return { zona: null, punto: 0 };
     const matchZona = notas.match(/Zona:\s*(\w+)/);
     const matchPunto = notas.match(/Punto:\s*(\d+)/);
-    return {
-      zona: matchZona ? matchZona[1] : null,
-      punto: matchPunto ? parseInt(matchPunto[1]) : 0,
-    };
+    return { zona: matchZona ? matchZona[1] : null, punto: matchPunto ? parseInt(matchPunto[1]) : 0 };
   };
 
-  // --- INSULINA ---
   const abrirNuevoInsulina = () => {
-    setIdEditandoInsulina(null);
-    setNombreIns('');
-    setTipoIns('Rápida');
-    setCaducidadIns('');
+    setIdEditandoInsulina(null); setNombreIns(''); setTipoIns('Rápida'); setCaducidadIns('');
     setDosis([{ etiqueta: 'Dosis 1', horario: '', unidades: '' }]);
-    setYaAplicadoAntes(null);
-    setZonaInicial('abdomen');
-    setPuntoInicial(1);
-    setErrorInsulina(null);
+    setYaAplicadoAntes(null); setZonaInicial('abdomen'); setPuntoInicial(1); setErrorInsulina(null);
     setModalInsulinaVisible(true);
   };
 
   const abrirEditarInsulina = async (item: Insulina) => {
-    setIdEditandoInsulina(item.id_insulina);
-    setNombreIns(item.nombre);
-    setTipoIns(item.tipo);
-    setCaducidadIns(item.caducidad || '');
-    setErrorInsulina(null);
-    
-    // Cargar dosis existentes
-    const dosisExistentes = await db.getAllAsync<DosisDB>(
-      'SELECT * FROM dosis_insulina WHERE insulina_id = ? ORDER BY horario ASC',
-      [item.id_insulina]
-    );
-    
+    setIdEditandoInsulina(item.id_insulina); setNombreIns(item.nombre); setTipoIns(item.tipo); setCaducidadIns(item.caducidad || ''); setErrorInsulina(null);
+    const dosisExistentes = await db.getAllAsync<DosisDB>('SELECT * FROM dosis_insulina WHERE insulina_id = ? ORDER BY horario ASC', [item.id_insulina]);
     if (dosisExistentes.length > 0) {
-      setDosis(dosisExistentes.map((d, i) => ({
-        id_dosis: d.id_dosis,
-        etiqueta: d.etiqueta || `Dosis ${i + 1}`,
-        horario: d.horario,
-        unidades: d.unidades.toString(),
-      })));
-    } else {
-      setDosis([{ etiqueta: 'Dosis 1', horario: '', unidades: '' }]);
-    }
-    
+      setDosis(dosisExistentes.map((d, i) => ({ id_dosis: d.id_dosis, etiqueta: d.etiqueta || `Dosis ${i + 1}`, horario: d.horario, unidades: d.unidades.toString() })));
+    } else { setDosis([{ etiqueta: 'Dosis 1', horario: '', unidades: '' }]); }
     setModalInsulinaVisible(true);
   };
 
-  // --- Manejo de dosis ---
   const agregarDosis = () => {
-    const nuevaNum = dosis.length + 1;
-    setDosis([...dosis, { etiqueta: `Dosis ${nuevaNum}`, horario: '', unidades: '' }]);
-  };
-
-  const eliminarDosis = (index: number) => {
-    if (dosis.length === 1) {
-      setErrorInsulina('Debe haber al menos una dosis.');
-      return;
-    }
-    const nuevas = dosis.filter((_, i) => i !== index);
-    setDosis(nuevas);
-  };
-
+    // Toma las unidades de la primera dosis existente para autocompletar la nueva
+    const unidadesFijas = dosis.length > 0 ? dosis[0].unidades : '';
+    setDosis([
+      ...dosis, 
+      { etiqueta: `Dosis ${dosis.length + 1}`, horario: '', unidades: unidadesFijas }
+    ]);
+  };  const eliminarDosis = (index: number) => { if (dosis.length === 1) { setErrorInsulina('Debe haber al menos una dosis.'); return; } setDosis(dosis.filter((_, i) => i !== index)); };
   const actualizarDosis = (index: number, campo: keyof Dosis, valor: string) => {
     const nuevas = [...dosis];
-    nuevas[index] = { ...nuevas[index], [campo]: valor };
+    
+    // Si el usuario cambia las unidades en la PRIMERA dosis...
+    if (campo === 'unidades' && index === 0) {
+      // Actualizamos TODAS las dosis con ese valor
+      nuevas.forEach(d => { d.unidades = valor; });
+    } else {
+      // Si es cualquier otro campo u otra dosis, solo actualizamos esa
+      nuevas[index] = { ...nuevas[index], [campo]: valor };
+    }
+    
     setDosis(nuevas);
   };
-
   const guardarInsulina = async () => {
-    if (!nombreIns.trim()) {
-      setErrorInsulina('Por favor ingresa el nombre de la insulina.');
-      return;
-    }
+    const userId = await obtenerUsuarioActivo();
+    if (!userId) return;
 
-    // Validar dosis
+    if (!nombreIns.trim()) return setErrorInsulina('Por favor ingresa el nombre de la insulina.');
     for (let i = 0; i < dosis.length; i++) {
-      if (!dosis[i].horario || !dosis[i].unidades) {
-        setErrorInsulina(`La dosis ${i + 1} debe tener horario y unidades.`);
-        return;
-      }
+      if (!dosis[i].horario || !dosis[i].unidades) return setErrorInsulina(`La dosis ${i + 1} debe tener horario y unidades.`);
       const uni = parseFloat(dosis[i].unidades);
-      if (isNaN(uni) || uni <= 0) {
-        setErrorInsulina(`Las unidades de la dosis ${i + 1} deben ser mayores a 0.`);
-        return;
-      }
+      if (isNaN(uni) || uni <= 0) return setErrorInsulina(`Las unidades de la dosis ${i + 1} deben ser mayores a 0.`);
     }
 
     const esEdicion = !!idEditandoInsulina;
-    if (!esEdicion && yaAplicadoAntes === null) {
-      setErrorInsulina('Por favor indica si ya te has aplicado insulina antes de usar SyteCycle.');
-      return;
-    }
+    if (!esEdicion && yaAplicadoAntes === null) return setErrorInsulina('Por favor indica si ya te has aplicado insulina antes de usar SyteCycle.');
 
     let notasFinales: string;
     if (esEdicion) {
-      const insulinaOriginal = insulinas.find(i => i.id_insulina === idEditandoInsulina);
-      notasFinales = insulinaOriginal?.notas || 'Zona: abdomen | Punto: 0';
+      notasFinales = insulinas.find(i => i.id_insulina === idEditandoInsulina)?.notas || 'Zona: abdomen | Punto: 0';
     } else {
-      if (yaAplicadoAntes) {
-        notasFinales = `Zona: ${zonaInicial} | Punto: ${puntoInicial}`;
-      } else {
-        notasFinales = `Zona: abdomen | Punto: 0`;
-      }
+      notasFinales = yaAplicadoAntes ? `Zona: ${zonaInicial} | Punto: ${puntoInicial}` : `Zona: abdomen | Punto: 0`;
     }
 
     try {
@@ -273,101 +185,53 @@ export default function TratamientoScreen() {
       } else {
         const id = generarId();
         idInsulina = id;
+        // GUARDAMOS VINCULADO AL USER ID
         await db.runAsync(
-          `INSERT INTO insulina (id_insulina, nombre, tipo, caducidad, notas) VALUES (?, ?, ?, ?, ?)`,
-          [id, nombreIns.trim(), tipoIns, caducidadIns.trim() || null, notasFinales]
+          `INSERT INTO insulina (id_insulina, id_usuario, nombre, tipo, caducidad, notas) VALUES (?, ?, ?, ?, ?, ?)`,
+          [id, userId, nombreIns.trim(), tipoIns, caducidadIns.trim() || null, notasFinales]
         );
       }
 
-      // Borrar dosis anteriores y guardar las nuevas
       if (idInsulina) {
         await db.runAsync(`DELETE FROM dosis_insulina WHERE insulina_id = ?`, [idInsulina]);
-        
-        // Cancelar notificaciones previas
         await cancelarNotificacionInsulina(idInsulina);
-        
-        // Guardar cada dosis + programar notificación
         for (const d of dosis) {
           const idDosis = generarId();
-          await db.runAsync(
-            `INSERT INTO dosis_insulina (id_dosis, insulina_id, etiqueta, horario, unidades) VALUES (?, ?, ?, ?, ?)`,
-            [idDosis, idInsulina, d.etiqueta, d.horario, parseFloat(d.unidades)]
-          );
-          
-          // Programar notificación por cada dosis
-          await programarNotificacionInsulina(
-            `${idInsulina}_${idDosis}`,
-            nombreIns.trim(),
-            tipoIns,
-            parseFloat(d.unidades),
-            d.horario
-          );
+          await db.runAsync(`INSERT INTO dosis_insulina (id_dosis, insulina_id, etiqueta, horario, unidades) VALUES (?, ?, ?, ?, ?)`, [idDosis, idInsulina, d.etiqueta, d.horario, parseFloat(d.unidades)]);
+          await programarNotificacionInsulina(`${idInsulina}_${idDosis}`, nombreIns.trim(), tipoIns, parseFloat(d.unidades), d.horario);
         }
       }
 
-      setModalInsulinaVisible(false);
-      cargarTratamientos();
-      emitirTratamientoActualizado();
-      mostrarMensajeExito(esEdicion ? '¡Cambios guardados!' : '¡Insulina registrada!');
-    } catch (error) {
-      console.error('Error al guardar insulina:', error);
-      setErrorInsulina('Ocurrió un error al guardar.');
-    }
+      setModalInsulinaVisible(false); cargarTratamientos(); emitirTratamientoActualizado(); mostrarMensajeExito(esEdicion ? '¡Cambios guardados!' : '¡Insulina registrada!');
+    } catch (error) { setErrorInsulina('Ocurrió un error al guardar.'); }
   };
 
-  const confirmarEliminarInsulina = (id: string, nombreItem: string) => {
-    setItemAEliminar({ id, nombre: nombreItem });
-    setModalEliminarInsVisible(true);
-  };
-
+  const confirmarEliminarInsulina = (id: string, nombreItem: string) => { setItemAEliminar({ id, nombre: nombreItem }); setModalEliminarInsVisible(true); };
   const ejecutarEliminarInsulina = async () => {
     if (!itemAEliminar) return;
     try {
       await cancelarNotificacionInsulina(itemAEliminar.id);
       await db.runAsync(`DELETE FROM dosis_insulina WHERE insulina_id = ?`, [itemAEliminar.id]);
       await db.runAsync(`DELETE FROM insulina WHERE id_insulina = ?`, [itemAEliminar.id]);
-      setModalEliminarInsVisible(false);
-      setItemAEliminar(null);
-      cargarTratamientos();
-      emitirTratamientoActualizado();
-      mostrarMensajeExito('¡Insulina eliminada!');
-    } catch (error) {
-      console.error('Error al eliminar insulina:', error);
-    }
+      setModalEliminarInsVisible(false); setItemAEliminar(null); cargarTratamientos(); emitirTratamientoActualizado(); mostrarMensajeExito('¡Insulina eliminada!');
+    } catch (error) {}
   };
 
-  // --- MEDICAMENTO ---
   const abrirNuevoMedicamento = () => {
-    setIdEditandoMed(null);
-    setNombreMed('');
-    setDosisMed('');
-    setFrecuenciaMed('Una vez al día');
-    setHorarioMed('');
-    setCaducidadMed('');
-    setIndicacionesMed('');
-    setDuracionMed('');
-    setErrorMedicamento(null);
-    setModalMedVisible(true);
+    setIdEditandoMed(null); setNombreMed(''); setDosisMed(''); setFrecuenciaMed('Una vez al día'); setHorarioMed('');
+    setCaducidadMed(''); setIndicacionesMed(''); setDuracionMed(''); setErrorMedicamento(null); setModalMedVisible(true);
   };
 
   const abrirEditarMedicamento = (item: Medicamento) => {
-    setIdEditandoMed(item.id_medicamento);
-    setNombreMed(item.nombre);
-    setDosisMed(item.dosis);
-    setFrecuenciaMed(item.frecuencia || 'Una vez al día');
-    setHorarioMed(item.horario);
-    setCaducidadMed(item.caducidad || '');
-    setIndicacionesMed(item.indicaciones || '');
-    setDuracionMed(item.duracion_dias?.toString() || '');
-    setErrorMedicamento(null);
-    setModalMedVisible(true);
+    setIdEditandoMed(item.id_medicamento); setNombreMed(item.nombre); setDosisMed(item.dosis); setFrecuenciaMed(item.frecuencia || 'Una vez al día');
+    setHorarioMed(item.horario); setCaducidadMed(item.caducidad || ''); setIndicacionesMed(item.indicaciones || ''); setDuracionMed(item.duracion_dias?.toString() || ''); setErrorMedicamento(null); setModalMedVisible(true);
   };
 
   const guardarMedicamento = async () => {
-    if (!nombreMed.trim() || !dosisMed.trim() || !frecuenciaMed.trim() || !horarioMed.trim()) {
-      setErrorMedicamento('Por favor llena los campos obligatorios.');
-      return;
-    }
+    const userId = await obtenerUsuarioActivo();
+    if (!userId) return;
+
+    if (!nombreMed.trim() || !dosisMed.trim() || !frecuenciaMed.trim() || !horarioMed.trim()) return setErrorMedicamento('Por favor llena los campos obligatorios.');
 
     try {
       const esEdicion = !!idEditandoMed;
@@ -380,51 +244,28 @@ export default function TratamientoScreen() {
         );
       } else {
         const id = generarId();
+        // GUARDAMOS VINCULADO AL USER ID
         await db.runAsync(
-          `INSERT INTO medicamento (id_medicamento, nombre, dosis, frecuencia, horario, caducidad, indicaciones, activo, duracion_dias) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-          [id, nombreMed.trim(), dosisMed.trim(), frecuenciaMed.trim(), horarioMed, caducidadMed.trim() || null, indicacionesMed.trim() || null, duracionNum]
+          `INSERT INTO medicamento (id_medicamento, id_usuario, nombre, dosis, frecuencia, horario, caducidad, indicaciones, activo, duracion_dias) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+          [id, userId, nombreMed.trim(), dosisMed.trim(), frecuenciaMed.trim(), horarioMed, caducidadMed.trim() || null, indicacionesMed.trim() || null, duracionNum]
         );
       }
 
-      const idParaNotif = esEdicion ? idEditandoMed : (await db.getFirstAsync<{ id_medicamento: string }>(
-        `SELECT id_medicamento FROM medicamento WHERE nombre = ? AND horario = ? ORDER BY rowid DESC LIMIT 1`,
-        [nombreMed.trim(), horarioMed]
-      ))?.id_medicamento;
+      const idParaNotif = esEdicion ? idEditandoMed : (await db.getFirstAsync<{ id_medicamento: string }>(`SELECT id_medicamento FROM medicamento WHERE nombre = ? AND horario = ? ORDER BY rowid DESC LIMIT 1`, [nombreMed.trim(), horarioMed]))?.id_medicamento;
+      if (idParaNotif) await programarNotificacionesPorFrecuencia(idParaNotif, nombreMed.trim(), dosisMed.trim(), frecuenciaMed, horarioMed);
 
-      if (idParaNotif) {
-        await programarNotificacionesPorFrecuencia(
-          idParaNotif, nombreMed.trim(), dosisMed.trim(), frecuenciaMed, horarioMed
-        );
-      }
-
-      setModalMedVisible(false);
-      cargarTratamientos();
-      emitirTratamientoActualizado();
-      mostrarMensajeExito(esEdicion ? '¡Medicamento actualizado!' : '¡Medicamento guardado!');
-    } catch (error) {
-      console.error('Error al guardar medicamento:', error);
-      setErrorMedicamento('Ocurrió un error al guardar.');
-    }
+      setModalMedVisible(false); cargarTratamientos(); emitirTratamientoActualizado(); mostrarMensajeExito(esEdicion ? '¡Medicamento actualizado!' : '¡Medicamento guardado!');
+    } catch (error) { setErrorMedicamento('Ocurrió un error al guardar.'); }
   };
 
-  const confirmarEliminarMedicamento = (id: string, nombreItem: string) => {
-    setItemAEliminar({ id, nombre: nombreItem });
-    setModalEliminarMedVisible(true);
-  };
-
+  const confirmarEliminarMedicamento = (id: string, nombreItem: string) => { setItemAEliminar({ id, nombre: nombreItem }); setModalEliminarMedVisible(true); };
   const ejecutarEliminarMedicamento = async () => {
     if (!itemAEliminar) return;
     try {
       await cancelarNotificacionMedicamento(itemAEliminar.id);
       await db.runAsync(`DELETE FROM medicamento WHERE id_medicamento = ?`, [itemAEliminar.id]);
-      setModalEliminarMedVisible(false);
-      setItemAEliminar(null);
-      cargarTratamientos();
-      emitirTratamientoActualizado();
-      mostrarMensajeExito('¡Medicamento eliminado!');
-    } catch (error) {
-      console.error('Error al eliminar medicamento:', error);
-    }
+      setModalEliminarMedVisible(false); setItemAEliminar(null); cargarTratamientos(); emitirTratamientoActualizado(); mostrarMensajeExito('¡Medicamento eliminado!');
+    } catch (error) {}
   };
 
   const insulinasFiltradas = insulinas.filter(i => i.nombre.toLowerCase().includes(busqueda.toLowerCase()));
@@ -601,7 +442,6 @@ export default function TratamientoScreen() {
                 ))}
               </View>
 
-              {/* SECCIÓN DE DOSIS */}
               <View style={styles.dosisHeader}>
                 <Text style={styles.labelZona}>Dosis del día </Text>
                 <TouchableOpacity style={styles.botonAgregarDosis} onPress={agregarDosis}>
@@ -633,22 +473,33 @@ export default function TratamientoScreen() {
                     onChange={(v) => actualizarDosis(index, 'horario', v)}
                   />
 
-                  <Text style={styles.labelInput}>Unidades (U)</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="ej. 6"
-                    placeholderTextColor="#aaa"
-                    keyboardType="numeric"
-                    value={d.unidades}
-                    onChangeText={(v) => actualizarDosis(index, 'unidades', v)}
-                  />
+
+
+              <Text style={styles.labelInput}>Unidades (U)</Text>
+              
+              {/* LÓGICA: Si es la primera dosis, permitimos escribir. Si no, mostramos el texto fijo */}
+              {index === 0 ? (
+                <TextInput
+                  style={styles.input}
+                  placeholder="ej. 6"
+                  placeholderTextColor="#aaa"
+                  keyboardType="numeric"
+                  value={d.unidades}
+                  onChangeText={(v) => actualizarDosis(index, 'unidades', v)}
+                />
+              ) : (
+                <View style={[styles.input, { backgroundColor: '#edf2f7', justifyContent: 'center' }]}>
+                  <Text style={{ fontSize: 14, color: '#4a5568', fontWeight: 'bold' }}>
+                    {d.unidades || '0'} U 
+                  </Text>
                 </View>
-              ))}
+              )}
+            </View>
+          ))}
 
               <Text style={styles.labelInput}>Caducidad (Opcional)</Text>
               <TextInput style={styles.input} placeholder="AAAA-MM-DD" placeholderTextColor="#aaa" value={caducidadIns} onChangeText={setCaducidadIns} />
 
-              {/* ROTASITIO INICIAL */}
               {!idEditandoInsulina && (
                 <View style={styles.rotasitioInicialContenedor}>
                   <View style={styles.rotasitioInicialHeader}>
@@ -699,7 +550,7 @@ export default function TratamientoScreen() {
                       </View>
 
                       <View style={styles.selectorPuntos}>
-                        {[1, 2, 3, 4, 5, 6, 7, 8].map((p) => (
+                        {[1, 2, 3, 4, 5, 6, 7].map((p) => (
                           <TouchableOpacity 
                             key={p} 
                             style={[styles.botonPunto, puntoInicial === p && styles.botonPuntoActivo]} 
@@ -871,7 +722,6 @@ const styles = StyleSheet.create({
   botonZonaActivo: { backgroundColor: '#3182ce', borderColor: '#3182ce' },
   textoZona: { fontSize: 12, color: '#4a5568', fontWeight: '600' },
   textoZonaActivo: { color: '#fff' },
-
   dosisHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
   botonAgregarDosis: { flexDirection: 'row', alignItems: 'center', padding: 4 },
   textoAgregarDosis: { color: '#308be6', fontSize: 12, fontWeight: 'bold', marginLeft: 4 },
@@ -879,13 +729,11 @@ const styles = StyleSheet.create({
   dosisHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   inputEtiqueta: { flex: 1, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 13, backgroundColor: '#fff', color: '#2d3748', fontWeight: 'bold' },
   botonEliminarDosis: { marginLeft: 8 },
-
   selectorFrecuencia: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 14 },
   botonFrecuencia: { paddingHorizontal: 14, paddingVertical: 9, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 20, backgroundColor: '#f7fafc', marginRight: 6, marginBottom: 6 },
   botonFrecuenciaActivo: { backgroundColor: '#2e7d32', borderColor: '#2e7d32' },
   textoFrecuencia: { fontSize: 12, color: '#4a5568', fontWeight: '600' },
   textoFrecuenciaActivo: { color: '#fff' },
-
   rotasitioInicialContenedor: { backgroundColor: '#ebf8ff', borderRadius: 16, padding: 16, marginTop: 8, marginBottom: 12, borderWidth: 1, borderColor: '#bee3f8' },
   rotasitioInicialHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   rotasitioInicialTitulo: { fontSize: 14, fontWeight: 'bold', color: '#2c5282', marginLeft: 6 },
@@ -900,7 +748,6 @@ const styles = StyleSheet.create({
   botonPuntoActivo: { backgroundColor: '#308be6', borderColor: '#308be6' },
   textoPunto: { fontSize: 14, color: '#4a5568', fontWeight: 'bold' },
   textoPuntoActivo: { color: '#fff' },
-
   iconoAlertaContenedor: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff5f5', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
   tituloAlerta: { fontSize: 18, fontWeight: 'bold', color: '#2d3748', marginBottom: 8, textAlign: 'center' },
   textoAlerta: { fontSize: 13, color: '#718096', textAlign: 'center', marginBottom: 20, lineHeight: 18 },

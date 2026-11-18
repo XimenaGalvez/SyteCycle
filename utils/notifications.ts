@@ -132,7 +132,6 @@ export const programarNotificacionesPorFrecuencia = async (
       notificacionesProgramadas.push(idNotif);
       const horaStr = hora.toString().padStart(2, '0');
       const minStr = minutoBase.toString().padStart(2, '0');
-      console.log(`✅ Notificación programada para ${nombreMedicamento} a las ${horaStr}:${minStr}`);
     }
 
     return notificacionesProgramadas;

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { initDatabase } from './database/db';
-import { obtenerUsuario, eliminarCuenta } from './database/queries'; // <-- IMPORT CORREGIDO
+import { obtenerUsuario, cerrarSesion } from './database/queries'; 
 import { pedirPermisosNotificaciones } from './utils/notifications';
 import BienvenidaScreen from './screens/BienvenidaScreen';
 import CrearUsuarioScreen from './screens/CrearUsuarioScreen';
@@ -19,18 +19,21 @@ export default function App() {
   useEffect(() => {
     const setup = async () => {
       try {
+        // 1. Inicializamos la base de datos primero
         await initDatabase();
         
-        try {
-          await Notifications.cancelAllScheduledNotificationsAsync();
-          console.log('🧹 Notificaciones viejas canceladas');
-        } catch (err) {
-          console.warn('No se pudieron cancelar las notificaciones viejas:', err);
-        }
+
 
         await pedirPermisosNotificaciones();
-        const usuario = await obtenerUsuario();
-        setPantalla(usuario !== null ? 'login' : 'bienvenida');
+        
+        // 2. Verificamos si hay un usuario con sesión activa guardada en AsyncStorage
+        const usuarioActivo = await obtenerUsuario();
+        
+        if (usuarioActivo) {
+          setPantalla('home'); // Ya está logueado
+        } else {
+          setPantalla('bienvenida'); // No hay sesión, a la bienvenida
+        }
       } catch (error) {
         console.error('Error al iniciar:', error);
         setPantalla('bienvenida');
@@ -79,8 +82,9 @@ export default function App() {
   return (
     <NavigationContainer>
       <MainTabs
-        onCerrarSesion={async () => { // <-- AQUÍ ESTÁ EL CAMBIO
-          await eliminarCuenta(); // Borra todos los datos de la cuenta
+        onCerrarSesion={async () => { 
+          // CAMBIO: Ahora solo cerramos sesión, NO borramos la cuenta
+          await cerrarSesion(); 
           setPantalla('bienvenida');
         }}
         onCuentaEliminada={() => setPantalla('bienvenida')}
