@@ -550,7 +550,7 @@ export default function TratamientoScreen() {
                       </View>
 
                       <View style={styles.selectorPuntos}>
-                        {[1, 2, 3, 4, 5, 6, 7].map((p) => (
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map((p) => (
                           <TouchableOpacity 
                             key={p} 
                             style={[styles.botonPunto, puntoInicial === p && styles.botonPuntoActivo]} 
