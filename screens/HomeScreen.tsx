@@ -788,7 +788,23 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
                         <Text style={styles.itemMedSubtexto}>
                           {med.horario} • {realizadas} de {maxTomas}
                         </Text>
-                        
+
+                        {/* ✅ AQUÍ AGREGAMOS LAS INDICACIONES */}
+                        {med.indicaciones ? (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                            <Ionicons name="information-circle-outline" size={14} color="#718096" />
+                            <Text style={{ 
+                              fontSize: 12, 
+                              color: '#718096', 
+                              marginLeft: 4, 
+                              fontStyle: 'italic',
+                              flexShrink: 1 // Para que el texto se ajuste si es muy largo
+                            }}>
+                              {med.indicaciones}
+                            </Text>
+                          </View>
+                        ) : null}
+                       
                         {/* TEXTO SUTIL CUANDO SE COMPLETA EL DÍA */}
                         {completado && (
                           <Text style={{ fontSize: 11, color: '#2e7d32', fontStyle: 'italic', marginTop: 2 }}>
