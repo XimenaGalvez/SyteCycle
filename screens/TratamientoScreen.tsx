@@ -74,10 +74,10 @@ export default function TratamientoScreen() {
 
       // FILTRO CRUCIAL POR ID DE USUARIO
       const resInsulinas = await db.getAllAsync<Insulina>(
-        'SELECT * FROM insulina WHERE id_usuario = ? ORDER BY created_at DESC', [userId]
+        'SELECT * FROM insulina WHERE id_usuario = ? AND activo = 1 ORDER BY created_at DESC', [userId]
       );
       const resMeds = await db.getAllAsync<Medicamento>(
-        'SELECT * FROM medicamento WHERE id_usuario = ?', [userId]
+        'SELECT * FROM medicamento WHERE id_usuario = ? AND activo = 1', [userId]
       );
       
       const dosisMap: { [key: string]: DosisDB[] } = {};
@@ -211,9 +211,14 @@ export default function TratamientoScreen() {
     if (!itemAEliminar) return;
     try {
       await cancelarNotificacionInsulina(itemAEliminar.id);
-      await db.runAsync(`DELETE FROM dosis_insulina WHERE insulina_id = ?`, [itemAEliminar.id]);
-      await db.runAsync(`DELETE FROM insulina WHERE id_insulina = ?`, [itemAEliminar.id]);
-      setModalEliminarInsVisible(false); setItemAEliminar(null); cargarTratamientos(); emitirTratamientoActualizado(); mostrarMensajeExito('¡Insulina eliminada!');
+      // BORRADO LÓGICO: Solo desactivamos la insulina
+      await db.runAsync(`UPDATE insulina SET activo = 0 WHERE id_insulina = ?`, [itemAEliminar.id]);
+      
+      setModalEliminarInsVisible(false); 
+      setItemAEliminar(null); 
+      cargarTratamientos(); 
+      emitirTratamientoActualizado(); 
+      mostrarMensajeExito('¡Insulina eliminada!');
     } catch (error) {}
   };
 
@@ -259,12 +264,18 @@ export default function TratamientoScreen() {
   };
 
   const confirmarEliminarMedicamento = (id: string, nombreItem: string) => { setItemAEliminar({ id, nombre: nombreItem }); setModalEliminarMedVisible(true); };
-  const ejecutarEliminarMedicamento = async () => {
+const ejecutarEliminarMedicamento = async () => {
     if (!itemAEliminar) return;
     try {
       await cancelarNotificacionMedicamento(itemAEliminar.id);
-      await db.runAsync(`DELETE FROM medicamento WHERE id_medicamento = ?`, [itemAEliminar.id]);
-      setModalEliminarMedVisible(false); setItemAEliminar(null); cargarTratamientos(); emitirTratamientoActualizado(); mostrarMensajeExito('¡Medicamento eliminado!');
+      // BORRADO LÓGICO: Solo desactivamos el medicamento
+      await db.runAsync(`UPDATE medicamento SET activo = 0 WHERE id_medicamento = ?`, [itemAEliminar.id]);
+      
+      setModalEliminarMedVisible(false); 
+      setItemAEliminar(null); 
+      cargarTratamientos(); 
+      emitirTratamientoActualizado(); 
+      mostrarMensajeExito('¡Medicamento eliminado!');
     } catch (error) {}
   };
 
@@ -550,7 +561,7 @@ export default function TratamientoScreen() {
                       </View>
 
                       <View style={styles.selectorPuntos}>
-                        {[1, 2, 3, 4, 5, 6, 7].map((p) => (
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map((p) => (
                           <TouchableOpacity 
                             key={p} 
                             style={[styles.botonPunto, puntoInicial === p && styles.botonPuntoActivo]} 

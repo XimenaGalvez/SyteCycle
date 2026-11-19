@@ -16,7 +16,7 @@ export default function BienvenidaScreen({ onCrearCuenta, onIniciarSesion }: Pro
         style={styles.header}
       >
         <Text style={styles.appName}>SYTECYCLE</Text>
-        <Text style={styles.subtitulo}>Tu tratamiento, organizado.</Text>
+        <Text style={styles.subtitulo}>Tu tratamiento organizado.</Text>
       </LinearGradient>
 
       <View style={styles.botones}>

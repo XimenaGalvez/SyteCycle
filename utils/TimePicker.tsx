@@ -18,6 +18,8 @@ type Props = {
 
 export default function TimePicker({ value, onChange, label }: Props) {
   const [mostrar, setMostrar] = useState(false);
+  // Agregamos un estado temporal para guardar lo que el usuario ve en la rueda
+  const [horaTemporal, setHoraTemporal] = useState<Date>(new Date());
 
   const getDateFromString = () => {
     const [h, m] = value.split(':').map(Number);
@@ -36,10 +38,29 @@ export default function TimePicker({ value, onChange, label }: Props) {
       return;
     }
     if (selectedDate) {
+      // Si es iOS, guardamos la selección temporalmente
+      setHoraTemporal(selectedDate);
+      
       const horas = selectedDate.getHours().toString().padStart(2, '0');
       const minutos = selectedDate.getMinutes().toString().padStart(2, '0');
       onChange(`${horas}:${minutos}`);
     }
+  };
+
+  // Función que se ejecuta al presionar "Listo" en iOS
+  const handleConfirmarIOS = () => {
+    // Si el usuario no movió la rueda, guardamos la hora por defecto que estaba viendo
+    if (!value) {
+      const horas = getDateFromString().getHours().toString().padStart(2, '0');
+      const minutos = getDateFromString().getMinutes().toString().padStart(2, '0');
+      onChange(`${horas}:${minutos}`);
+    } else {
+      // Si ya tenía un valor temporal, lo confirmamos
+      const horas = horaTemporal.getHours().toString().padStart(2, '0');
+      const minutos = horaTemporal.getMinutes().toString().padStart(2, '0');
+      onChange(`${horas}:${minutos}`);
+    }
+    setMostrar(false);
   };
 
   const formatearHora12 = (hora24: string) => {
@@ -56,7 +77,11 @@ export default function TimePicker({ value, onChange, label }: Props) {
       
       <TouchableOpacity
         style={styles.inputBoton}
-        onPress={() => setMostrar(true)}
+        onPress={() => {
+          // Al abrir, inicializamos la hora temporal con el valor actual o la hora por defecto
+          setHoraTemporal(getDateFromString());
+          setMostrar(true);
+        }}
         activeOpacity={0.8}
       >
         <Ionicons name="time-outline" size={20} color="#308be6" />
@@ -74,12 +99,13 @@ export default function TimePicker({ value, onChange, label }: Props) {
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <TouchableOpacity onPress={() => setMostrar(false)}>
+                {/* Ahora "Listo" llama a handleConfirmarIOS */}
+                <TouchableOpacity onPress={handleConfirmarIOS}>
                   <Text style={styles.modalBoton}>Listo</Text>
                 </TouchableOpacity>
               </View>
               <DateTimePicker
-                value={getDateFromString()}
+                value={horaTemporal}
                 mode="time"
                 is24Hour={false}
                 display="spinner"

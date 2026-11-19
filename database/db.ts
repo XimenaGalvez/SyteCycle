@@ -34,6 +34,7 @@ export const initDatabase = async () => {
         tipo TEXT NOT NULL,
         caducidad TEXT,
         notas TEXT,
+        activo INTEGER DEFAULT 1, -- <-- AGREGA ESTA LÍNEA
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (id_usuario) REFERENCES usuario (id_usuario) ON DELETE CASCADE
       );

@@ -96,7 +96,7 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
       if (!userId) return;
 
       const resInsulinas = await db.getAllAsync<Insulina>(
-        'SELECT * FROM insulina WHERE id_usuario = ? ORDER BY created_at DESC',
+        'SELECT * FROM insulina WHERE id_usuario = ? AND activo = 1 ORDER BY created_at DESC',
         [userId]
       );
       
@@ -111,7 +111,6 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
         `SELECT * FROM medicamento WHERE id_usuario = ? AND activo = 1 ORDER BY horario ASC`,
         [userId]
       );
-      
       setInsulinas(resInsulinas);
       setDosisTodas(resDosis);
       setMedicamentos(resMeds);
@@ -297,8 +296,26 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
       const userId = await obtenerUsuarioActivo();
       if (!userId) return { usadoReciente: false, diasDesdeUso: null, nivel: 'ok' };
 
-      const sitioBuscado = `Punto ${punto}`;
+      // 1. VERIFICAR SI ES EL PUNTO INICIAL DEL ESQUEMA
+      if (dosisSeleccionada?.insulina?.notas) {
+        const matchZona = dosisSeleccionada.insulina.notas.match(/Zona:\s*(\w+)/);
+        const matchPunto = dosisSeleccionada.insulina.notas.match(/Punto:\s*(\d+)/);
+        
+        const zonaInicial = matchZona ? matchZona[1].toLowerCase() : null;
+        const puntoInicial = matchPunto ? parseInt(matchPunto[1]) : 0;
 
+        // Si el usuario seleccionó la misma zona y el mismo punto que puso en su esquema
+        if (zonaInicial === zona.toLowerCase() && puntoInicial === punto && puntoInicial > 0) {
+          return {
+            usadoReciente: true,
+            diasDesdeUso: 0, // Asumimos que es reciente
+            nivel: 'advertencia', // Nivel rojo para máxima prioridad
+          };
+        }
+      }
+
+      // 2. SI NO ES EL INICIAL, BUSCAR EN LA BASE DE DATOS
+      const sitioBuscado = `Punto ${punto}`;
       const resultado = await db.getFirstAsync<{ fecha: string; hora: string }>(
         `SELECT a.fecha, a.hora FROM aplicacion_insulina a
          INNER JOIN insulina i ON a.insulina_id = i.id_insulina
@@ -371,10 +388,12 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
         return;
       }
       const idToma = generarId();
-      const hora = new Date().toTimeString().slice(0, 5);
+      
+      const horaExacta = new Date().toTimeString().slice(0, 5); 
+      
       await db.runAsync(
         `INSERT INTO toma_medicamento (id_toma_medicamento, medicamento_id, fecha, hora, estado) VALUES (?, ?, ?, ?, 'Realizado')`,
-        [idToma, idMedicamento, hoy, hora]
+        [idToma, idMedicamento, hoy, horaExacta] 
       );
       setTomasHoy(prev => ({ ...prev, [idMedicamento]: (prev[idMedicamento] || 0) + 1 }));
     } catch (error) {
@@ -679,7 +698,7 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
               {insulinaReferencia && (
                 <View style={styles.proximaSitioContainer}>
                   <Text style={styles.proximaSitioLabel}>
-                    {todasAplicadas ? 'Próxima dosis - RotaSitio:' : '📍 RotaSitio sugerido:'}
+                    {todasAplicadas ? 'Próxima dosis - RotaSitio:' : 'RotaSitio sugerido:'}
                   </Text>
                   <Text style={styles.proximaSitio}>
                     {zonaReferencia.charAt(0).toUpperCase() + zonaReferencia.slice(1)} - Punto {puntoReferencia}
@@ -769,6 +788,13 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
                         <Text style={styles.itemMedSubtexto}>
                           {med.horario} • {realizadas} de {maxTomas}
                         </Text>
+                        
+                        {/* TEXTO SUTIL CUANDO SE COMPLETA EL DÍA */}
+                        {completado && (
+                          <Text style={{ fontSize: 11, color: '#2e7d32', fontStyle: 'italic', marginTop: 2 }}>
+                            Completado por hoy. Se reiniciará mañana.
+                          </Text>
+                        )}
                       </View>
                     </TouchableOpacity>
                     
@@ -783,11 +809,6 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
                           <Ionicons name="add-circle" size={26} color="#2e7d32" />
                         </TouchableOpacity>
                       )}
-                      {completado && (
-                        <TouchableOpacity onPress={() => deshacerToma(med.id_medicamento)}>
-                          <Ionicons name="refresh-circle" size={24} color="#a0aec0" />
-                        </TouchableOpacity>
-                      )}
                     </View>
                   </View>
                 );
@@ -795,7 +816,11 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
             )}
           </View>
 
-          <View style={styles.aplicacion}>
+          <TouchableOpacity 
+            style={styles.aplicacion} 
+            activeOpacity={0.8}
+            onPress={() => navigation.navigate('Tratamiento')}
+          >
             <Text style={styles.seccionTituloSecundaria}>Rotación RotaSitio</Text>
             {insulinaReferencia ? (
               <>
@@ -814,7 +839,7 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
             ) : (
               <Text style={styles.textoSecundario}>Agrega una insulina para comenzar.</Text>
             )}
-          </View>
+          </TouchableOpacity>
 
           <View style={styles.progresoContainer}>
             <CirculoProgreso
