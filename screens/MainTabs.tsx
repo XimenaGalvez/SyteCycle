@@ -1,7 +1,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform } from 'react-native'; // <-- Agregamos Platform
+import { Platform } from 'react-native';
 import HomeScreen from './HomeScreen';
 import TratamientoScreen from './TratamientoScreen';
 import HistorialScreen from './HistorialScreen';
@@ -22,9 +22,9 @@ export default function MainTabs({ onCerrarSesion, onCuentaEliminada }: Props) {
         tabBarActiveTintColor: '#308be6',
         tabBarInactiveTintColor: '#a0aec0',
         tabBarStyle: {
-          height: Platform.OS === 'ios' ? 80 : 85, // Altura total del menú
-          paddingBottom: Platform.OS === 'ios' ? 30 : 15, // Espacio abajo (lo sube)
-          paddingTop: 8, // Espacio arriba
+          height: Platform.OS === 'ios' ? 80 : 85,
+          paddingBottom: Platform.OS === 'ios' ? 30 : 15,
+          paddingTop: 8,
           borderTopWidth: 1,
           borderTopColor: '#edf2f7',
           backgroundColor: '#fff',
@@ -37,7 +37,7 @@ export default function MainTabs({ onCerrarSesion, onCuentaEliminada }: Props) {
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: '600',
-          marginBottom: Platform.OS === 'ios' ? 0 : 5, // Ajuste para el texto
+          marginBottom: Platform.OS === 'ios' ? 0 : 5,
         },
         tabBarIcon: ({ color, size }) => {
           let iconName: any = 'home-outline';

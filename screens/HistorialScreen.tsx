@@ -4,9 +4,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { db } from '../database/db';
 import { escucharTratamientoActualizado } from '../utils/events';
-import { obtenerUsuarioActivo } from '../database/queries';
+import { obtenerUsuarioActivo, obtenerHistorialUsuario } from '../database/queries';
 // Tipos
 type Aplicacion = {
   id_aplicacion_insulina: string;
@@ -48,19 +47,19 @@ export default function HistorialScreen() {
   const cargarDatos = async () => {
     try {
       const userId = await obtenerUsuarioActivo();
-        if (!userId) {setHistorial([]);return;}
-      // 1. Traer aplicaciones de insulina
-      const resAplicaciones = await db.getAllAsync<Aplicacion>(
-        `SELECT a.* FROM aplicacion_insulina a INNER JOIN insulina i ON a.insulina_id = i.id_insulina WHERE i.id_usuario = ? ORDER BY a.fecha DESC, a.hora DESC`,[userId]
-      );
-      const resInsulinas = await db.getAllAsync<{ id_insulina: string; nombre: string; tipo: string; activo: number }>('SELECT * FROM insulina WHERE id_usuario = ?', [userId]); 
-      const resDosis = await db.getAllAsync<{ id_dosis: string; etiqueta: string | null; horario: string }>(`SELECT d.* FROM dosis_insulina d INNER JOIN insulina i ON d.insulina_id = i.id_insulina WHERE i.id_usuario = ?`, [userId]);
+      if (!userId) {
+        setHistorial([]);
+        return;
+      }
 
-      // 2. Traer tomas de medicamentos
-      const resTomas = await db.getAllAsync<TomaMedicamento>(
-        `SELECT t.* FROM toma_medicamento t INNER JOIN medicamento m ON t.medicamento_id = m.id_medicamento WHERE m.id_usuario = ? AND t.estado = 'Realizado' ORDER BY t.fecha DESC, t.hora DESC`, [userId]
-      );
-      const resMedicamentos = await db.getAllAsync<{ id_medicamento: string; nombre: string; dosis: string; activo: number }>('SELECT * FROM medicamento WHERE id_usuario = ?',   [userId]);
+      const {
+        aplicaciones: resAplicaciones,
+        insulinas: resInsulinas,
+        dosis: resDosis,
+        tomas: resTomas,
+        medicamentos: resMedicamentos,
+      } = await obtenerHistorialUsuario(userId);
+
       // 3. Unificar todo en un solo arreglo
       const itemsUnificados: HistorialItem[] = [];
 

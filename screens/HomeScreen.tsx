@@ -11,58 +11,39 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { obtenerUsuario, obtenerUsuarioActivo, Usuario } from '../database/queries';
+import {
+  obtenerUsuario,
+  obtenerUsuarioActivo,
+  obtenerTratamientosUsuario,
+  obtenerTomasHoy,
+  obtenerAplicacionesHoy,
+  registrarTomaMedicamento,
+  deshacerUltimaTomaMedicamento,
+  registrarAplicacionInsulina,
+  deshacerUltimaAplicacionInsulina,
+  cerrarSesion,
+  Usuario,
+} from '../database/queries';
 import { db, generarId } from '../database/db';
-import { escucharTratamientoActualizado,   emitirTratamientoActualizado} from '../utils/events';
-import CirculoProgreso from '../utils/CirculoProgreso';
-import CuerpoHumano from '../utils/CuerpoHumano';
-import MiniMapaRotaSitio from '../utils/MiniMapaRotaSitio';
+import { escucharTratamientoActualizado, emitirTratamientoActualizado } from '../utils/events';
+import {
+  Insulina,
+  Dosis,
+  Medicamento,
+  ProximaDosis,
+  InfoPunto,
+  ZonaInyeccion,
+} from '../types';
+import CirculoProgreso from '../components/CirculoProgreso';
+import CuerpoHumano from '../components/CuerpoHumano';
+import MiniMapaRotaSitio from '../components/MiniMapaRotaSitio';
 
 type Props = {
   onCerrarSesion: () => void;
 };
 
-type Insulina = {
-  id_insulina: string;
-  nombre: string;
-  tipo: string;
-  caducidad: string | null;
-  notas: string | null;
-};
-
-type Dosis = {
-  id_dosis: string;
-  insulina_id: string;
-  etiqueta: string | null;
-  horario: string;
-  unidades: number;
-};
-
-type Medicamento = {
-  id_medicamento: string;
-  nombre: string;
-  dosis: string;
-  frecuencia: string;
-  horario: string;
-  caducidad: string | null;
-  indicaciones: string | null;
-  activo: number;
-  duracion_dias?: number;
-  created_at?: string;
-};
-
-type ProximaDosis = {
-  insulina: Insulina;
-  dosis: Dosis;
-};
-
-type InfoPunto = {
-  usadoReciente: boolean;
-  diasDesdeUso: number | null;
-  nivel: 'ok' | 'precaucion' | 'advertencia';
-};
-
 export default function HomeScreen({ onCerrarSesion }: Props) {
+  const funcionCerrarSesion = onCerrarSesion;
   const navigation = useNavigation<any>();
   
   const [usuario, setUsuario] = useState<Usuario | null>(null);
@@ -95,22 +76,9 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
       const userId = await obtenerUsuarioActivo();
       if (!userId) return;
 
-      const resInsulinas = await db.getAllAsync<Insulina>(
-        'SELECT * FROM insulina WHERE id_usuario = ? AND activo = 1 ORDER BY created_at DESC',
-        [userId]
-      );
-      
-      const resDosis = await db.getAllAsync<Dosis>(
-        `SELECT d.* FROM dosis_insulina d 
-         INNER JOIN insulina i ON d.insulina_id = i.id_insulina 
-         WHERE i.id_usuario = ? ORDER BY d.horario ASC`,
-        [userId]
-      );
-      
-      const resMeds = await db.getAllAsync<Medicamento>(
-        `SELECT * FROM medicamento WHERE id_usuario = ? AND activo = 1 ORDER BY horario ASC`,
-        [userId]
-      );
+      const { insulinas: resInsulinas, dosisTodas: resDosis, medicamentos: resMeds } =
+        await obtenerTratamientosUsuario(userId);
+
       setInsulinas(resInsulinas);
       setDosisTodas(resDosis);
       setMedicamentos(resMeds);
@@ -125,16 +93,7 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
       if (!userId) return;
 
       const hoy = getFechaLocal();
-      const tomas = await db.getAllAsync<{ medicamento_id: string; total: number }>(
-        `SELECT t.medicamento_id, COUNT(*) as total 
-         FROM toma_medicamento t
-         INNER JOIN medicamento m ON t.medicamento_id = m.id_medicamento
-         WHERE t.fecha = ? AND t.estado = 'Realizado' AND m.id_usuario = ?
-         GROUP BY t.medicamento_id`,
-        [hoy, userId]
-      );
-      const mapa: { [key: string]: number } = {};
-      tomas.forEach(t => { mapa[t.medicamento_id] = t.total; });
+      const mapa = await obtenerTomasHoy(userId, hoy);
       setTomasHoy(mapa);
     } catch (error) {
       console.error('Error al cargar tomas:', error);
@@ -147,17 +106,7 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
       if (!userId) return;
 
       const hoy = getFechaLocal();
-      const aplicaciones = await db.getAllAsync<{ dosis_id: string; hora: string }>(
-        `SELECT a.dosis_id, a.hora 
-         FROM aplicacion_insulina a
-         INNER JOIN insulina i ON a.insulina_id = i.id_insulina
-         WHERE a.fecha = ? AND i.id_usuario = ?`,
-        [hoy, userId]
-      );
-      const mapa: { [key: string]: { hora: string } } = {};
-      aplicaciones.forEach(a => { 
-        if (a.dosis_id) mapa[a.dosis_id] = { hora: a.hora }; 
-      });
+      const mapa = await obtenerAplicacionesHoy(userId, hoy);
       setAplicacionesHoy(mapa);
     } catch (error) {
       console.error('Error al cargar aplicaciones:', error);
@@ -399,7 +348,17 @@ const verificarPuntoReciente = async (
       '¿Seguro que quieres cerrar sesión?',
       [
         { text: 'Cancelar', style: 'cancel' },
-        { text: 'Cerrar sesión', style: 'destructive', onPress: onCerrarSesion },
+        {
+          text: 'Cerrar sesión',
+          style: 'destructive',
+          onPress: async () => {
+            if (funcionCerrarSesion) {
+              funcionCerrarSesion();
+            } else {
+              await cerrarSesion();
+            }
+          },
+        },
       ]
     );
   };
@@ -412,14 +371,8 @@ const verificarPuntoReciente = async (
         Alert.alert('Completado', 'Ya registraste todas las tomas de hoy.');
         return;
       }
-      const idToma = generarId();
-      
-      const horaExacta = new Date().toTimeString().slice(0, 5); 
-      
-      await db.runAsync(
-        `INSERT INTO toma_medicamento (id_toma_medicamento, medicamento_id, fecha, hora, estado) VALUES (?, ?, ?, ?, 'Realizado')`,
-        [idToma, idMedicamento, hoy, horaExacta] 
-      );
+      const horaExacta = new Date().toTimeString().slice(0, 5);
+      await registrarTomaMedicamento(idMedicamento, hoy, horaExacta);
       setTomasHoy(prev => ({ ...prev, [idMedicamento]: (prev[idMedicamento] || 0) + 1 }));
     } catch (error) {
       console.error('Error al registrar toma:', error);
@@ -430,15 +383,7 @@ const verificarPuntoReciente = async (
     try {
       const hoy = getFechaLocal();
       if ((tomasHoy[idMedicamento] || 0) <= 0) return;
-      await db.runAsync(
-        `DELETE FROM toma_medicamento 
-         WHERE id_toma_medicamento IN (
-           SELECT id_toma_medicamento FROM toma_medicamento 
-           WHERE medicamento_id = ? AND fecha = ? 
-           ORDER BY hora DESC LIMIT 1
-         )`,
-        [idMedicamento, hoy]
-      );
+      await deshacerUltimaTomaMedicamento(idMedicamento, hoy);
       setTomasHoy(prev => ({ 
         ...prev, 
         [idMedicamento]: Math.max(0, (prev[idMedicamento] || 0) - 1) 
@@ -552,15 +497,18 @@ const verificarPuntoReciente = async (
     if (!dosisSeleccionada) return;
 
     try {
-      const idApp = generarId();
       const hoy = getFechaLocal();
       const horaReal = new Date().toTimeString().slice(0, 5);
 
-      await db.runAsync(
-        `INSERT INTO aplicacion_insulina (id_aplicacion_insulina, insulina_id, dosis_id, unidades, fecha, hora, zona, sitio_detalle) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [idApp, dosisSeleccionada.insulina.id_insulina, dosisSeleccionada.dosis.id_dosis, dosisSeleccionada.dosis.unidades, hoy, horaReal, zonaSeleccionada, `Punto ${puntoSeleccionado}`]
-      );
+      await registrarAplicacionInsulina({
+        insulinaId: dosisSeleccionada.insulina.id_insulina,
+        dosisId: dosisSeleccionada.dosis.id_dosis,
+        unidades: dosisSeleccionada.dosis.unidades,
+        fecha: hoy,
+        hora: horaReal,
+        zona: zonaSeleccionada,
+        sitioDetalle: `Punto ${puntoSeleccionado}`,
+      });
 
       const nuevasNotas = `Zona: ${zonaSeleccionada} | Punto: ${puntoSeleccionado}`;
       await db.runAsync(

@@ -1,14 +1,31 @@
 import { db, generarId } from './db';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  Usuario,
+  Insulina,
+  Dosis,
+  Medicamento,
+  AplicacionInsulina,
+  TomaMedicamento,
+  EstadisticasUsuario,
+} from '../types';
 
-export type Usuario = {
-  id_usuario: string;
-  nombre: string;
-  contrasena: string;
-  fecha_nacimiento: string | null;
-  peso: number | null;
-  relacion_insulina_carbohidrato: number | null;
-  created_at: string;
+export type { Usuario } from '../types';
+
+// ==========================================
+// --- SEGURIDAD: HASHING DE CONTRASEÑA ---
+// ==========================================
+
+const SALT_APP = 'sytecycle_secure_salt_v1';
+
+export const hashContrasena = async (texto: string): Promise<string> => {
+  // Import lazy: evita crash al cargar módulo en Expo Go si native no está listo
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const Crypto = require('expo-crypto') as typeof import('expo-crypto');
+  return await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    `${SALT_APP}_${texto.trim()}`
+  );
 };
 
 // ==========================================
@@ -37,6 +54,20 @@ export const crearUsuario = async (datos: {
   fecha_nacimiento?: string;
   peso?: number;
 }): Promise<string> => {
+  const nombreLimpio = datos.nombre.trim();
+
+  // 1. Validar si ya existe un usuario con el mismo nombre
+  const existe = await db.getFirstAsync<{ id_usuario: string }>(
+    `SELECT id_usuario FROM usuario WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?)) LIMIT 1`,
+    [nombreLimpio]
+  );
+
+  if (existe) {
+    throw new Error('Ya existe un usuario con este nombre. Elige otro nombre.');
+  }
+
+  // 2. Hashear la contraseña con sal antes de guardarla
+  const passHash = await hashContrasena(datos.contrasena);
   const id = generarId();
 
   try {
@@ -45,14 +76,15 @@ export const crearUsuario = async (datos: {
        VALUES (?, ?, ?, ?, ?)`,
       [
         id,
-        datos.nombre.trim(),
-        datos.contrasena,
+        nombreLimpio,
+        passHash,
         datos.fecha_nacimiento ?? null,
         datos.peso ?? null,
       ]
     );
-    // Al crear un usuario, iniciamos su sesión automáticamente
-    await guardarSesion(id); 
+
+    // Iniciar sesión automáticamente
+    await guardarSesion(id);
     return id;
   } catch (error: any) {
     console.error('Error al crear usuario:', error);
@@ -67,21 +99,45 @@ export const validarCredenciales = async (
   nombre: string,
   contrasena: string
 ): Promise<Usuario | null> => {
-  const resultado = await db.getFirstAsync<Usuario>(
-    `SELECT * FROM usuario WHERE nombre = ? AND contrasena = ? LIMIT 1`,
-    [nombre.trim(), contrasena]
+  const nombreLimpio = nombre.trim();
+  const usuario = await db.getFirstAsync<Usuario>(
+    `SELECT * FROM usuario WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?)) LIMIT 1`,
+    [nombreLimpio]
   );
-  
-  if (resultado) {
-    // Si las credenciales son correctas, guardamos la sesión
-    await guardarSesion(resultado.id_usuario); 
+
+  if (!usuario) {
+    return null;
   }
-  return resultado ?? null;
+
+  // Validar con hash
+  const passHash = await hashContrasena(contrasena);
+  let coincide = usuario.contrasena === passHash;
+
+  // Migración transparente para cuentas preexistentes en texto plano
+  if (!coincide && usuario.contrasena === contrasena) {
+    coincide = true;
+    try {
+      // Actualizar automáticamente la contraseña antigua con el nuevo hash
+      await db.runAsync(
+        `UPDATE usuario SET contrasena = ? WHERE id_usuario = ?`,
+        [passHash, usuario.id_usuario]
+      );
+    } catch (e) {
+      console.warn('No se pudo migrar contraseña a hash:', e);
+    }
+  }
+
+  if (coincide) {
+    await guardarSesion(usuario.id_usuario);
+    return usuario;
+  }
+
+  return null;
 };
 
 export const obtenerUsuario = async (): Promise<Usuario | null> => {
   const idActivo = await obtenerUsuarioActivo();
-  if (!idActivo) return null; // Si no hay ID guardado, no hay usuario
+  if (!idActivo) return null;
 
   const resultado = await db.getFirstAsync<Usuario>(
     `SELECT * FROM usuario WHERE id_usuario = ? LIMIT 1`,
@@ -95,18 +151,14 @@ export const eliminarCuenta = async (): Promise<void> => {
   if (!idActivo) return;
 
   try {
-    // Gracias al ON DELETE CASCADE en db.ts, 
-    // al borrar el usuario se borran automáticamente sus medicamentos e insulinas.
     await db.runAsync(`DELETE FROM usuario WHERE id_usuario = ?`, [idActivo]);
   } catch (error) {
     console.error('Error al eliminar cuenta:', error);
   } finally {
-    // Cerramos sesión pase lo que pase
     await cerrarSesion();
   }
 };
 
-// Actualizar datos del usuario
 export const actualizarUsuario = async (datos: {
   nombre?: string;
   fecha_nacimiento?: string | null;
@@ -146,15 +198,218 @@ export const actualizarUsuario = async (datos: {
 };
 
 // ==========================================
+// --- TRATAMIENTOS (INSULINA & MEDICAMENTOS)
+// ==========================================
+
+export const obtenerTratamientosUsuario = async (userId: string): Promise<{
+  insulinas: Insulina[];
+  dosisPorInsulina: { [key: string]: Dosis[] };
+  dosisTodas: Dosis[];
+  medicamentos: Medicamento[];
+}> => {
+  const insulinas = await db.getAllAsync<Insulina>(
+    'SELECT * FROM insulina WHERE id_usuario = ? AND activo = 1 ORDER BY created_at DESC',
+    [userId]
+  );
+
+  // Obtener todas las dosis en UNA SOLA consulta (Elimina el problema N+1)
+  const dosisTodas = await db.getAllAsync<Dosis>(
+    `SELECT d.* FROM dosis_insulina d
+     INNER JOIN insulina i ON d.insulina_id = i.id_insulina
+     WHERE i.id_usuario = ? AND i.activo = 1
+     ORDER BY d.horario ASC`,
+    [userId]
+  );
+
+  const dosisPorInsulina: { [key: string]: Dosis[] } = {};
+  for (const ins of insulinas) {
+    dosisPorInsulina[ins.id_insulina] = [];
+  }
+  for (const d of dosisTodas) {
+    if (dosisPorInsulina[d.insulina_id]) {
+      dosisPorInsulina[d.insulina_id].push(d);
+    }
+  }
+
+  const medicamentos = await db.getAllAsync<Medicamento>(
+    'SELECT * FROM medicamento WHERE id_usuario = ? AND activo = 1 ORDER BY horario ASC',
+    [userId]
+  );
+
+  return { insulinas, dosisPorInsulina, dosisTodas, medicamentos };
+};
+
+// ==========================================
+// --- TOMAS Y APLICACIONES DEL DÍA ---
+// ==========================================
+
+export const obtenerTomasHoy = async (
+  userId: string,
+  fecha: string
+): Promise<{ [key: string]: number }> => {
+  const tomas = await db.getAllAsync<{ medicamento_id: string; total: number }>(
+    `SELECT t.medicamento_id, COUNT(*) as total
+     FROM toma_medicamento t
+     INNER JOIN medicamento m ON t.medicamento_id = m.id_medicamento
+     WHERE t.fecha = ? AND t.estado = 'Realizado' AND m.id_usuario = ?
+     GROUP BY t.medicamento_id`,
+    [fecha, userId]
+  );
+
+  const mapa: { [key: string]: number } = {};
+  tomas.forEach((t) => {
+    mapa[t.medicamento_id] = t.total;
+  });
+  return mapa;
+};
+
+export const obtenerAplicacionesHoy = async (
+  userId: string,
+  fecha: string
+): Promise<{ [key: string]: { hora: string } }> => {
+  const aplicaciones = await db.getAllAsync<{ dosis_id: string; hora: string }>(
+    `SELECT a.dosis_id, a.hora
+     FROM aplicacion_insulina a
+     INNER JOIN insulina i ON a.insulina_id = i.id_insulina
+     WHERE a.fecha = ? AND a.dosis_id IS NOT NULL AND i.id_usuario = ?`,
+    [fecha, userId]
+  );
+
+  const mapa: { [key: string]: { hora: string } } = {};
+  aplicaciones.forEach((a) => {
+    if (a.dosis_id) {
+      mapa[a.dosis_id] = { hora: a.hora };
+    }
+  });
+  return mapa;
+};
+
+export const registrarTomaMedicamento = async (
+  medicamentoId: string,
+  fecha: string,
+  hora: string
+): Promise<string> => {
+  const idToma = generarId();
+  await db.runAsync(
+    `INSERT INTO toma_medicamento (id_toma_medicamento, medicamento_id, fecha, hora, estado)
+     VALUES (?, ?, ?, ?, 'Realizado')`,
+    [idToma, medicamentoId, fecha, hora]
+  );
+  return idToma;
+};
+
+export const deshacerUltimaTomaMedicamento = async (
+  medicamentoId: string,
+  fecha: string
+): Promise<void> => {
+  await db.runAsync(
+    `DELETE FROM toma_medicamento
+     WHERE id_toma_medicamento IN (
+       SELECT id_toma_medicamento FROM toma_medicamento
+       WHERE medicamento_id = ? AND fecha = ?
+       ORDER BY hora DESC LIMIT 1
+     )`,
+    [medicamentoId, fecha]
+  );
+};
+
+export const registrarAplicacionInsulina = async (datos: {
+  insulinaId: string;
+  dosisId: string | null;
+  unidades: number;
+  fecha: string;
+  hora: string;
+  zona: string;
+  sitioDetalle: string;
+  notas?: string | null;
+}): Promise<string> => {
+  const idApp = generarId();
+  await db.runAsync(
+    `INSERT INTO aplicacion_insulina (id_aplicacion_insulina, insulina_id, dosis_id, unidades, fecha, hora, zona, sitio_detalle, notas)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      idApp,
+      datos.insulinaId,
+      datos.dosisId,
+      datos.unidades,
+      datos.fecha,
+      datos.hora,
+      datos.zona,
+      datos.sitioDetalle,
+      datos.notas ?? null,
+    ]
+  );
+  return idApp;
+};
+
+export const deshacerUltimaAplicacionInsulina = async (
+  insulinaId: string,
+  dosisId: string,
+  fecha: string
+): Promise<void> => {
+  await db.runAsync(
+    `DELETE FROM aplicacion_insulina
+     WHERE id_aplicacion_insulina IN (
+       SELECT id_aplicacion_insulina FROM aplicacion_insulina
+       WHERE insulina_id = ? AND dosis_id = ? AND fecha = ?
+       ORDER BY hora DESC LIMIT 1
+     )`,
+    [insulinaId, dosisId, fecha]
+  );
+};
+
+// ==========================================
+// --- HISTORIAL COMPLETO DE USUARIO ---
+// ==========================================
+
+export const obtenerHistorialUsuario = async (userId: string): Promise<{
+  aplicaciones: AplicacionInsulina[];
+  insulinas: { id_insulina: string; nombre: string; tipo: string; activo: number }[];
+  dosis: { id_dosis: string; etiqueta: string | null; horario: string }[];
+  tomas: TomaMedicamento[];
+  medicamentos: { id_medicamento: string; nombre: string; dosis: string; activo: number }[];
+}> => {
+  const aplicaciones = await db.getAllAsync<AplicacionInsulina>(
+    `SELECT a.* FROM aplicacion_insulina a
+     INNER JOIN insulina i ON a.insulina_id = i.id_insulina
+     WHERE i.id_usuario = ?
+     ORDER BY a.fecha DESC, a.hora DESC`,
+    [userId]
+  );
+
+  const insulinas = await db.getAllAsync<{ id_insulina: string; nombre: string; tipo: string; activo: number }>(
+    `SELECT id_insulina, nombre, tipo, activo FROM insulina WHERE id_usuario = ?`,
+    [userId]
+  );
+
+  const dosis = await db.getAllAsync<{ id_dosis: string; etiqueta: string | null; horario: string }>(
+    `SELECT d.id_dosis, d.etiqueta, d.horario FROM dosis_insulina d
+     INNER JOIN insulina i ON d.insulina_id = i.id_insulina
+     WHERE i.id_usuario = ?`,
+    [userId]
+  );
+
+  const tomas = await db.getAllAsync<TomaMedicamento>(
+    `SELECT t.* FROM toma_medicamento t
+     INNER JOIN medicamento m ON t.medicamento_id = m.id_medicamento
+     WHERE m.id_usuario = ? AND t.estado = 'Realizado'
+     ORDER BY t.fecha DESC, t.hora DESC`,
+    [userId]
+  );
+
+  const medicamentos = await db.getAllAsync<{ id_medicamento: string; nombre: string; dosis: string; activo: number }>(
+    `SELECT id_medicamento, nombre, dosis, activo FROM medicamento WHERE id_usuario = ?`,
+    [userId]
+  );
+
+  return { aplicaciones, insulinas, dosis, tomas, medicamentos };
+};
+
+// ==========================================
 // --- ESTADÍSTICAS DEL USUARIO ---
 // ==========================================
 
-export const obtenerEstadisticasUsuario = async (): Promise<{
-  diasUsando: number;
-  totalAplicaciones: number;
-  totalTomas: number;
-  adherenciaPromedio: number;
-}> => {
+export const obtenerEstadisticasUsuario = async (): Promise<EstadisticasUsuario> => {
   try {
     const usuario = await obtenerUsuario();
     if (!usuario) {
@@ -169,16 +424,16 @@ export const obtenerEstadisticasUsuario = async (): Promise<{
 
     // 2. Totales históricos filtrados por el usuario activo
     const resultadoApp = await db.getFirstAsync<{ total: number }>(
-      `SELECT COUNT(*) as total FROM aplicacion_insulina a 
-       INNER JOIN insulina i ON a.insulina_id = i.id_insulina 
+      `SELECT COUNT(*) as total FROM aplicacion_insulina a
+       INNER JOIN insulina i ON a.insulina_id = i.id_insulina
        WHERE i.id_usuario = ?`,
       [usuario.id_usuario]
     );
     const totalAplicaciones = resultadoApp?.total || 0;
 
     const resultadoTomas = await db.getFirstAsync<{ total: number }>(
-      `SELECT COUNT(*) as total FROM toma_medicamento t 
-       INNER JOIN medicamento m ON t.medicamento_id = m.id_medicamento 
+      `SELECT COUNT(*) as total FROM toma_medicamento t
+       INNER JOIN medicamento m ON t.medicamento_id = m.id_medicamento
        WHERE m.id_usuario = ? AND t.estado = 'Realizado'`,
       [usuario.id_usuario]
     );
@@ -196,7 +451,7 @@ export const obtenerEstadisticasUsuario = async (): Promise<{
 
     let fechaInicioTratamiento: Date | null = null;
     const fechas = [primerInsulina?.fecha, primerMedicamento?.fecha].filter(Boolean) as string[];
-    
+
     if (fechas.length > 0) {
       const fechaMasAntigua = fechas.sort()[0];
       fechaInicioTratamiento = new Date(fechaMasAntigua.replace(' ', 'T'));
@@ -211,8 +466,8 @@ export const obtenerEstadisticasUsuario = async (): Promise<{
 
     // 4. Dosis esperadas de insulina
     const dosisResult = await db.getFirstAsync<{ total: number }>(
-      `SELECT COUNT(*) as total FROM dosis_insulina d 
-       INNER JOIN insulina i ON d.insulina_id = i.id_insulina 
+      `SELECT COUNT(*) as total FROM dosis_insulina d
+       INNER JOIN insulina i ON d.insulina_id = i.id_insulina
        WHERE i.id_usuario = ?`,
       [usuario.id_usuario]
     );

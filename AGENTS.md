@@ -1,41 +1,30 @@
-This is an Expo/React Native mobile application. Prioritize mobile-first patterns, performance, and cross-platform compatibility.
+# SyteCycle — Directrices de Desarrollo
 
-## Expo has changed — do not trust your training data
+Esta es una aplicación móvil desarrollada con Expo / React Native (SDK 58) y TypeScript estricto.
 
-Expo ships breaking changes every SDK release. APIs you remember are likely renamed, moved, or removed. Before writing any code that touches an Expo, EAS, or React Native API:
+## Arquitectura del Proyecto
 
-1. Read the major version of the `expo` package in `package.json`.
-2. Fetch the matching versioned docs: `https://docs.expo.dev/versions/v<major>.0.0/`
-3. For anything else, fetch https://docs.expo.dev/llms.txt — an index of all Expo docs with corrections to common LLM misconceptions. Follow its links to the specific page you need; never answer from memory.
+- **Navegación:** Se utiliza **React Navigation** (`@react-navigation/native`, `@react-navigation/native-stack` y `@react-navigation/bottom-tabs`).
+  - `App.tsx`: Stack raíz con gestión de flujo de autenticación nativo (Bienvenida, Login, Registro) y sesión activa (`MainTabs`).
+  - `screens/MainTabs.tsx`: Navegador de pestañas inferiores (Inicio, Tratamiento, Historial, Perfil).
+- **Base de Datos Local:** SQLite a través de `expo-sqlite`.
+  - Esquema y conexión en `database/db.ts`. Las claves foráneas están habilitadas (`PRAGMA foreign_keys = ON;`).
+  - La capa de acceso a datos y consultas reside en `database/queries.ts`. **No ejecutar consultas SQL crudas directamente en pantallas de UI**.
+- **Aislamiento Multi-usuario:**
+  - Toda consulta de insulinas, dosis, medicamentos, aplicaciones e historial **DEBE** estar estrictamente filtrada por el `id_usuario` activo.
+- **Estructura de Directorios:**
+  - `components/`: Componentes visuales reutilizables (`CuerpoHumano`, `MiniMapaRotaSitio`, `CirculoProgreso`, `TimePicker`).
+  - `screens/`: Pantallas de la aplicación.
+  - `types/`: Definiciones de interfaces y tipos TypeScript compartidos (`Usuario`, `Insulina`, `Medicamento`, etc.).
+  - `constants/`: Constantes de dominio (coordenadas de puntos de inyección `CENTROS_INYECCION`, rotación, etc.).
+  - `utils/`: Utilidades de sistema nativas (`notifications.ts`, `events.ts`).
 
-## Commands
-
-Use `bunx` instead of `npx` if the project uses bun (`bun.lock` present).
+## Comandos Principales
 
 ```bash
-npx expo install <package>  # ALWAYS use instead of npm/yarn/pnpm/bun add — resolves SDK-compatible versions
-npx expo start              # start the dev server
-npx expo lint               # lint
-npx tsc --noEmit            # typecheck
-npx expo-doctor             # diagnose dependency and config issues
-npx expo install --fix      # fix incompatible package versions
+npx expo start              # Iniciar el servidor de desarrollo
+npx tsc --noEmit            # Comprobación de tipos TypeScript estricta
+npx expo-doctor             # Diagnosticar dependencias y configuración
 ```
 
-Run lint and typecheck before declaring any task done.
-
-## Navigation & Routing
-
-- Use **Expo Router** for all navigation. Routes live in `src/app/` — every file there is a screen, `_layout.tsx` files define navigators. Keep non-route code (components, hooks, utils) outside `src/app/`.
-- Import `Link`, `router`, and `useLocalSearchParams` from `expo-router`.
-- Docs: https://docs.expo.dev/router/introduction.md
-
-## Building with EAS
-
-Use EAS to build, sign, and submit the app in the cloud (`eas build`, `eas submit`) and to ship over-the-air updates (`eas update`) — no local Xcode or Android Studio required. Run EAS CLI as `bunx eas-cli <command>` in Bun projects, or `npx eas-cli@latest <command>` otherwise; substitute that for bare `eas` in docs examples.
-Docs: https://docs.expo.dev/eas/index.md
-
-## Rules
-
-- If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
-- Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
-- Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md
+Siempre ejecuta `npx tsc --noEmit` antes de dar una tarea por terminada.

@@ -8,7 +8,6 @@ import BienvenidaScreen from './screens/BienvenidaScreen';
 import CrearUsuarioScreen from './screens/CrearUsuarioScreen';
 import LoginScreen from './screens/LoginScreen';
 import MainTabs from './screens/MainTabs';
-import * as Notifications from 'expo-notifications';
 
 type Pantalla = 'bienvenida' | 'crear' | 'login' | 'home';
 
@@ -19,20 +18,14 @@ export default function App() {
   useEffect(() => {
     const setup = async () => {
       try {
-        // 1. Inicializamos la base de datos primero
         await initDatabase();
-        
-
-
         await pedirPermisosNotificaciones();
-        
-        // 2. Verificamos si hay un usuario con sesión activa guardada en AsyncStorage
         const usuarioActivo = await obtenerUsuario();
         
         if (usuarioActivo) {
-          setPantalla('home'); // Ya está logueado
+          setPantalla('home');
         } else {
-          setPantalla('bienvenida'); // No hay sesión, a la bienvenida
+          setPantalla('bienvenida');
         }
       } catch (error) {
         console.error('Error al iniciar:', error);
@@ -83,7 +76,6 @@ export default function App() {
     <NavigationContainer>
       <MainTabs
         onCerrarSesion={async () => { 
-          // CAMBIO: Ahora solo cerramos sesión, NO borramos la cuenta
           await cerrarSesion(); 
           setPantalla('bienvenida');
         }}

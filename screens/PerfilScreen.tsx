@@ -34,6 +34,8 @@ type Estadisticas = {
 };
 
 export default function PerfilScreen({ onCuentaEliminada, onCerrarSesion }: Props) {
+  const handlerCerrarSesion = onCerrarSesion;
+  const handlerCuentaEliminada = onCuentaEliminada;
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [stats, setStats] = useState<Estadisticas>({
     diasUsando: 0,
@@ -84,8 +86,13 @@ export default function PerfilScreen({ onCuentaEliminada, onCerrarSesion }: Prop
         {
           text: 'Cerrar sesión',
           style: 'destructive',
-          onPress: () => {
-            onCerrarSesion();
+          onPress: async () => {
+            if (handlerCerrarSesion) {
+              handlerCerrarSesion();
+            } else {
+              await cancelarTodasLasNotificaciones();
+              await eliminarCuenta(); // o cerrarSesion
+            }
           },
         },
       ]
@@ -161,7 +168,9 @@ export default function PerfilScreen({ onCuentaEliminada, onCerrarSesion }: Prop
               // Cancelar notificaciones antes de borrar la cuenta
               await cancelarTodasLasNotificaciones();
               await eliminarCuenta();
-              onCuentaEliminada();
+              if (handlerCuentaEliminada) {
+                handlerCuentaEliminada();
+              }
             } catch (error) {
               console.error('Error al eliminar cuenta:', error);
               Alert.alert('Error', 'No se pudo eliminar la cuenta.');

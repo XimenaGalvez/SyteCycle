@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from 'react';import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { db, generarId } from '../database/db';
-import { obtenerUsuarioActivo } from '../database/queries';
+import { obtenerUsuarioActivo, obtenerTratamientosUsuario } from '../database/queries';
 import { Ionicons } from '@expo/vector-icons';
 import { emitirTratamientoActualizado } from '../utils/events';
 import { 
@@ -72,21 +72,8 @@ export default function TratamientoScreen() {
       const userId = await obtenerUsuarioActivo();
       if (!userId) return;
 
-      // FILTRO CRUCIAL POR ID DE USUARIO
-      const resInsulinas = await db.getAllAsync<Insulina>(
-        'SELECT * FROM insulina WHERE id_usuario = ? AND activo = 1 ORDER BY created_at DESC', [userId]
-      );
-      const resMeds = await db.getAllAsync<Medicamento>(
-        'SELECT * FROM medicamento WHERE id_usuario = ? AND activo = 1', [userId]
-      );
-      
-      const dosisMap: { [key: string]: DosisDB[] } = {};
-      for (const ins of resInsulinas) {
-        const dosis = await db.getAllAsync<DosisDB>(
-          'SELECT * FROM dosis_insulina WHERE insulina_id = ? ORDER BY horario ASC', [ins.id_insulina]
-        );
-        dosisMap[ins.id_insulina] = dosis;
-      }
+      const { insulinas: resInsulinas, dosisPorInsulina: dosisMap, medicamentos: resMeds } =
+        await obtenerTratamientosUsuario(userId);
       
       setInsulinas(resInsulinas);
       setDosisPorInsulina(dosisMap);
