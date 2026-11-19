@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import {
+import React, { useEffect, useState, useCallback } from 'react';import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal, Animated,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { db, generarId } from '../database/db';
 import { obtenerUsuarioActivo } from '../database/queries';
 import { Ionicons } from '@expo/vector-icons';
@@ -96,7 +96,7 @@ export default function TratamientoScreen() {
     }
   };
 
-  useEffect(() => { cargarTratamientos(); }, []);
+  useFocusEffect( useCallback(() => { cargarTratamientos();}, []));
 
   const verificarCaducidad = (fechaStr: string | null) => {
     if (!fechaStr) return 'ok';

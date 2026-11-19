@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { obtenerUsuario, obtenerUsuarioActivo, Usuario } from '../database/queries';
 import { db, generarId } from '../database/db';
-import { escucharTratamientoActualizado } from '../utils/events';
+import { escucharTratamientoActualizado,   emitirTratamientoActualizado} from '../utils/events';
 import CirculoProgreso from '../utils/CirculoProgreso';
 import CuerpoHumano from '../utils/CuerpoHumano';
 import MiniMapaRotaSitio from '../utils/MiniMapaRotaSitio';
@@ -291,67 +291,92 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
     return () => { cancelado = true; };
   }, [dosisTodas, medicamentos, aplicacionesHoy, tomasHoy, calcularAdherenciaSemanal]);
 
-  const verificarPuntoReciente = async (zona: string, punto: number): Promise<InfoPunto> => {
-    try {
-      const userId = await obtenerUsuarioActivo();
-      if (!userId) return { usadoReciente: false, diasDesdeUso: null, nivel: 'ok' };
+  
+const verificarPuntoReciente = async (
+  zona: string,
+  punto: number
+): Promise<InfoPunto> => {
+  try {
+    const userId = await obtenerUsuarioActivo();
 
-      // 1. VERIFICAR SI ES EL PUNTO INICIAL DEL ESQUEMA
-      if (dosisSeleccionada?.insulina?.notas) {
-        const matchZona = dosisSeleccionada.insulina.notas.match(/Zona:\s*(\w+)/);
-        const matchPunto = dosisSeleccionada.insulina.notas.match(/Punto:\s*(\d+)/);
-        
-        const zonaInicial = matchZona ? matchZona[1].toLowerCase() : null;
-        const puntoInicial = matchPunto ? parseInt(matchPunto[1]) : 0;
-
-        // Si el usuario seleccionó la misma zona y el mismo punto que puso en su esquema
-        if (zonaInicial === zona.toLowerCase() && puntoInicial === punto && puntoInicial > 0) {
-          return {
-            usadoReciente: true,
-            diasDesdeUso: 0, // Asumimos que es reciente
-            nivel: 'advertencia', // Nivel rojo para máxima prioridad
-          };
-        }
-      }
-
-      // 2. SI NO ES EL INICIAL, BUSCAR EN LA BASE DE DATOS
-      const sitioBuscado = `Punto ${punto}`;
-      const resultado = await db.getFirstAsync<{ fecha: string; hora: string }>(
-        `SELECT a.fecha, a.hora FROM aplicacion_insulina a
-         INNER JOIN insulina i ON a.insulina_id = i.id_insulina
-         WHERE LOWER(TRIM(a.zona)) = LOWER(TRIM(?)) 
-           AND LOWER(TRIM(a.sitio_detalle)) = LOWER(TRIM(?))
-           AND i.id_usuario = ?
-         ORDER BY a.fecha DESC, a.hora DESC 
-         LIMIT 1`,
-        [zona, sitioBuscado, userId]
-      );
-
-      if (!resultado) {
-        return { usadoReciente: false, diasDesdeUso: null, nivel: 'ok' };
-      }
-
-      const hoy = new Date();
-      hoy.setHours(0, 0, 0, 0);
-      const fechaUso = new Date(resultado.fecha + 'T00:00:00');
-      const diffMs = hoy.getTime() - fechaUso.getTime();
-      const dias = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-      const diasNormalizados = dias < 0 ? 0 : dias;
-
-      let nivel: 'ok' | 'precaucion' | 'advertencia' = 'ok';
-      if (diasNormalizados <= 3) nivel = 'advertencia';
-      else if (diasNormalizados <= 7) nivel = 'precaucion';
-
-      return {
-        usadoReciente: diasNormalizados <= 7,
-        diasDesdeUso: diasNormalizados,
-        nivel,
-      };
-    } catch (error) {
-      console.error('Error al verificar punto:', error);
+    if (!userId) {
       return { usadoReciente: false, diasDesdeUso: null, nivel: 'ok' };
     }
-  };
+
+    // Obtener el último punto utilizado en esta insulina
+    const notas = dosisSeleccionada?.insulina?.notas || '';
+    const matchZona = notas.match(/Zona:\s*(\w+)/);
+    const matchPunto = notas.match(/Punto:\s*(\d+)/);
+
+    const zonaAnterior = matchZona
+      ? matchZona[1].toLowerCase().trim()
+      : null;
+
+    const puntoAnterior = matchPunto
+      ? parseInt(matchPunto[1], 10)
+      : 0;
+
+    const siguientePunto = puntoAnterior >= 8
+      ? 1
+      : puntoAnterior + 1;
+
+    const esSiguienteRecomendado =
+      zonaAnterior === zona.toLowerCase().trim() &&
+      punto === siguientePunto;
+
+    // Consultar si el punto seleccionado fue utilizado recientemente
+    const resultado = await db.getFirstAsync<{ fecha: string; hora: string }>(
+      `SELECT a.fecha, a.hora
+       FROM aplicacion_insulina a
+       INNER JOIN insulina i ON a.insulina_id = i.id_insulina
+       WHERE LOWER(TRIM(a.zona)) = LOWER(TRIM(?))
+         AND LOWER(TRIM(a.sitio_detalle)) = LOWER(TRIM(?))
+         AND i.id_usuario = ?
+       ORDER BY a.fecha DESC, a.hora DESC
+       LIMIT 1`,
+      [zona, `Punto ${punto}`, userId]
+    );
+
+    if (!resultado) {
+      return { usadoReciente: false, diasDesdeUso: null, nivel: 'ok' };
+    }
+
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+
+    const fechaUso = new Date(resultado.fecha + 'T00:00:00');
+    const diffMs = hoy.getTime() - fechaUso.getTime();
+    const dias = Math.max(
+      0,
+      Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    );
+
+    // El siguiente recomendado no debe mostrar advertencia innecesaria
+    if (esSiguienteRecomendado) {
+      return {
+        usadoReciente: false,
+        diasDesdeUso: dias,
+        nivel: 'ok',
+      };
+    }
+
+    let nivel: 'ok' | 'precaucion' | 'advertencia' = 'ok';
+
+    if (dias <= 3) nivel = 'advertencia';
+    else if (dias <= 7) nivel = 'precaucion';
+
+    return {
+      usadoReciente: dias <= 7,
+      diasDesdeUso: dias,
+      nivel,
+    };
+
+  } catch (error) {
+    console.error('Error al verificar punto:', error);
+    return { usadoReciente: false, diasDesdeUso: null, nivel: 'ok' };
+  }
+};
+
 
   useEffect(() => {
     if (!modalRegistroVisible) {
@@ -468,7 +493,7 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
     if (!notas) return 1;
     const matchPunto = notas.match(/Punto:\s*(\d+)/);
     const puntoActual = matchPunto ? parseInt(matchPunto[1]) : 0;
-    return puntoActual >= 7 ? 1 : puntoActual + 1;
+    return puntoActual >= 8 ? 1 : puntoActual + 1;
   };
 
   let insulinaReferencia: Insulina | null = null;
@@ -542,7 +567,7 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
         `UPDATE insulina SET notas = ? WHERE id_insulina = ?`,
         [nuevasNotas, dosisSeleccionada.insulina.id_insulina]
       );
-
+      emitirTratamientoActualizado();
       setModalRegistroVisible(false);
       setDosisSeleccionada(null);
       setInfoPuntoActual({ usadoReciente: false, diasDesdeUso: null, nivel: 'ok' });
@@ -556,6 +581,7 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
     }
   };
 
+  
   const abrirModalParaDosis = async (item: ProximaDosis) => {
     setDosisSeleccionada(item);
     const siguientePuntoCalc = calcularSiguientePunto(item.insulina.notas);
