@@ -5,39 +5,58 @@ import {
   CENTROS_INYECCION,
   PUNTOS_ROTACION,
   calcularPosicionPunto,
+  calcularSiguienteSitio,
+  InfoRotacion,
 } from '../constants/bodyMap';
 import { ZonaInyeccion } from '../types';
 
 type Props = {
-  zona: ZonaInyeccion;
-  puntoUsado: number | null;
+  zonaSiguiente?: ZonaInyeccion;
+  puntoSiguiente?: number;
+  zonaAnterior?: ZonaInyeccion;
+  puntoAnterior?: number;
+  notas?: string | null;
+  zona?: ZonaInyeccion;
+  puntoUsado?: number | null;
   nombreInsulina: string;
   esSiguienteDosis?: boolean;
 };
 
 export default function MiniMapaRotaSitio({
+  zonaSiguiente,
+  puntoSiguiente,
+  zonaAnterior,
+  puntoAnterior,
+  notas,
   zona,
   puntoUsado,
   nombreInsulina,
   esSiguienteDosis = false,
 }: Props) {
-  const calcularSiguiente = (zonaActual: string, puntoActual: number | null) => {
-    if (!puntoActual) return { zonaAMostrar: 'abdomen', puntoAMostrar: 1, zonaDelUsado: 'abdomen' };
+  let rotacion: InfoRotacion;
+  if (zonaSiguiente && puntoSiguiente) {
+    rotacion = {
+      zonaSiguiente,
+      puntoSiguiente,
+      zonaAnterior: zonaAnterior || 'abdomen',
+      puntoAnterior: puntoAnterior ?? 0,
+    };
+  } else if (notas !== undefined) {
+    rotacion = calcularSiguienteSitio(notas);
+  } else if (zona) {
+    rotacion = calcularSiguienteSitio(`Zona: ${zona} | Punto: ${puntoUsado ?? 0}`);
+  } else {
+    rotacion = calcularSiguienteSitio(null);
+  }
 
-    if (puntoActual >= 8) {
-      const zonas = ['abdomen', 'brazo', 'muslo'];
-      const indexActual = zonas.indexOf(zonaActual);
-      const siguienteZona = zonas[(indexActual + 1) % 3];
-      return { zonaAMostrar: siguienteZona, puntoAMostrar: 1, zonaDelUsado: zonaActual };
-    }
+  const zonaAMostrar = rotacion.zonaSiguiente;
+  const puntoAMostrar = rotacion.puntoSiguiente;
+  const zonaDelUsado = rotacion.zonaAnterior;
+  const puntoDelUsado = rotacion.puntoAnterior;
 
-    return { zonaAMostrar: zonaActual, puntoAMostrar: puntoActual + 1, zonaDelUsado: zonaActual };
-  };
-
-  const { zonaAMostrar, puntoAMostrar, zonaDelUsado } = calcularSiguiente(zona, puntoUsado);
   const centroAMostrar =
     CENTROS_INYECCION[zonaAMostrar as keyof typeof CENTROS_INYECCION] || CENTROS_INYECCION.abdomen;
-  const mostrarParcheGris = zonaAMostrar === zonaDelUsado;
+  const mostrarParcheGris = zonaAMostrar === zonaDelUsado && puntoDelUsado > 0;
 
   return (
     <View style={styles.container}>
@@ -62,7 +81,7 @@ export default function MiniMapaRotaSitio({
           {PUNTOS_ROTACION.map((num, index) => {
             const { x, y } = calcularPosicionPunto(index, 38);
             const esSiguiente = num === puntoAMostrar;
-            const esElUsado = num === puntoUsado && mostrarParcheGris;
+            const esElUsado = num === puntoDelUsado && mostrarParcheGris;
 
             return (
               <View
@@ -97,9 +116,13 @@ export default function MiniMapaRotaSitio({
           </Text>
         </View>
 
-        {puntoUsado && (
+        {puntoDelUsado > 0 ? (
           <Text style={styles.ultimoTexto}>
-            (Último aplicado: {zona.toUpperCase()} • Punto {puntoUsado})
+            (Último aplicado: {zonaDelUsado.toUpperCase()} • Punto {puntoDelUsado})
+          </Text>
+        ) : (
+          <Text style={styles.ultimoTexto}>
+            (Sin aplicaciones previas registradas)
           </Text>
         )}
       </View>

@@ -37,6 +37,7 @@ import {
 import CirculoProgreso from '../components/CirculoProgreso';
 import CuerpoHumano from '../components/CuerpoHumano';
 import MiniMapaRotaSitio from '../components/MiniMapaRotaSitio';
+import { calcularSiguienteSitio } from '../constants/bodyMap';
 
 type Props = {
   onCerrarSesion: () => void;
@@ -241,37 +242,41 @@ export default function HomeScreen({ onCerrarSesion }: Props) {
   }, [dosisTodas, medicamentos, aplicacionesHoy, tomasHoy, calcularAdherenciaSemanal]);
 
   
-const verificarPuntoReciente = async (
-  zona: string,
-  punto: number
-): Promise<InfoPunto> => {
-  try {
-    const userId = await obtenerUsuarioActivo();
-
-    if (!userId) {
-      return { usadoReciente: false, diasDesdeUso: null, nivel: 'ok' };
+  const cargarPuntosUsados = async (insulinaId: string, zona: string) => {
+    try {
+      const resultados = await db.getAllAsync<{ sitio_detalle: string }>(
+        `SELECT sitio_detalle FROM aplicacion_insulina 
+         WHERE insulina_id = ? AND LOWER(TRIM(zona)) = LOWER(TRIM(?))
+         ORDER BY fecha DESC, hora DESC LIMIT 8`,
+        [insulinaId, zona]
+      );
+      const puntos = resultados
+        .map(r => parseInt(r.sitio_detalle.replace('Punto ', ''), 10))
+        .filter(num => !isNaN(num));
+      setPuntosUsados(puntos);
+    } catch (error) {
+      console.log('Error al obtener puntos usados:', error);
     }
+  };
 
-    // Obtener el último punto utilizado en esta insulina
-    const notas = dosisSeleccionada?.insulina?.notas || '';
-    const matchZona = notas.match(/Zona:\s*(\w+)/);
-    const matchPunto = notas.match(/Punto:\s*(\d+)/);
+  const verificarPuntoReciente = async (
+    zona: string,
+    punto: number
+  ): Promise<InfoPunto> => {
+    try {
+      const userId = await obtenerUsuarioActivo();
 
-    const zonaAnterior = matchZona
-      ? matchZona[1].toLowerCase().trim()
-      : null;
+      if (!userId) {
+        return { usadoReciente: false, diasDesdeUso: null, nivel: 'ok' };
+      }
 
-    const puntoAnterior = matchPunto
-      ? parseInt(matchPunto[1], 10)
-      : 0;
+      // Obtener el siguiente punto recomendado para esta insulina
+      const notas = dosisSeleccionada?.insulina?.notas || '';
+      const rotacion = calcularSiguienteSitio(notas);
 
-    const siguientePunto = puntoAnterior >= 8
-      ? 1
-      : puntoAnterior + 1;
-
-    const esSiguienteRecomendado =
-      zonaAnterior === zona.toLowerCase().trim() &&
-      punto === siguientePunto;
+      const esSiguienteRecomendado =
+        rotacion.zonaSiguiente.toLowerCase().trim() === zona.toLowerCase().trim() &&
+        rotacion.puntoSiguiente === punto;
 
     // Consultar si el punto seleccionado fue utilizado recientemente
     const resultado = await db.getFirstAsync<{ fecha: string; hora: string }>(
@@ -434,13 +439,6 @@ const verificarPuntoReciente = async (
   const proximaDosis = obtenerProximaDosisPendiente();
   const proximaInsulina = proximaDosis?.insulina || null;
 
-  const calcularSiguientePunto = (notas: string | null) => {
-    if (!notas) return 1;
-    const matchPunto = notas.match(/Punto:\s*(\d+)/);
-    const puntoActual = matchPunto ? parseInt(matchPunto[1]) : 0;
-    return puntoActual >= 8 ? 1 : puntoActual + 1;
-  };
-
   let insulinaReferencia: Insulina | null = null;
   
   if (proximaDosis) {
@@ -449,8 +447,9 @@ const verificarPuntoReciente = async (
     insulinaReferencia = dosisDelDia.length > 0 ? dosisDelDia[dosisDelDia.length - 1].insulina : insulinas[0];
   }
 
-  const zonaReferencia = insulinaReferencia?.notas?.match(/Zona:\s*(\w+)/)?.[1] || 'abdomen';
-  const puntoReferencia = insulinaReferencia ? calcularSiguientePunto(insulinaReferencia.notas) : 1;
+  const rotacionReferencia = calcularSiguienteSitio(insulinaReferencia?.notas);
+  const zonaReferencia = rotacionReferencia.zonaSiguiente;
+  const puntoReferencia = rotacionReferencia.puntoSiguiente;
 
   const todasAplicadas = dosisDelDia.length > 0 && dosisDelDia.every(d => aplicacionesHoy[d.dosis.id_dosis]);
 
@@ -532,27 +531,10 @@ const verificarPuntoReciente = async (
   
   const abrirModalParaDosis = async (item: ProximaDosis) => {
     setDosisSeleccionada(item);
-    const siguientePuntoCalc = calcularSiguientePunto(item.insulina.notas);
-    const zonaActualCalc = item.insulina.notas?.match(/Zona:\s*(\w+)/)?.[1] || 'abdomen';
-    setPuntoSeleccionado(siguientePuntoCalc);
-    setZonaSeleccionada(zonaActualCalc as any);
-
-    try {
-      const idInsulina = item.insulina.id_insulina;
-      const resultados = await db.getAllAsync<{ sitio_detalle: string }>(
-        `SELECT sitio_detalle FROM aplicacion_insulina WHERE insulina_id = ?`, 
-        [idInsulina]
-      );
-      
-      const puntos = resultados
-        .map(r => parseInt(r.sitio_detalle.replace('Punto ', '')))
-        .filter(num => !isNaN(num));
-        
-      setPuntosUsados(puntos);
-    } catch (error) {
-      console.log('Error al obtener puntos usados:', error);
-    }
-    
+    const rotacion = calcularSiguienteSitio(item.insulina.notas);
+    setPuntoSeleccionado(rotacion.puntoSiguiente);
+    setZonaSeleccionada(rotacion.zonaSiguiente);
+    await cargarPuntosUsados(item.insulina.id_insulina, rotacion.zonaSiguiente);
     setModalRegistroVisible(true);
   };
 
@@ -660,10 +642,12 @@ const verificarPuntoReciente = async (
                 </View>
               )}
 
-              {insulinaReferencia && insulinaReferencia.notas && (
+              {insulinaReferencia && (
                 <MiniMapaRotaSitio 
-                  zona={zonaReferencia as any} 
-                  puntoUsado={puntoReferencia === 1 ? 8 : puntoReferencia - 1} 
+                  zonaSiguiente={rotacionReferencia.zonaSiguiente}
+                  puntoSiguiente={rotacionReferencia.puntoSiguiente}
+                  zonaAnterior={rotacionReferencia.zonaAnterior}
+                  puntoAnterior={rotacionReferencia.puntoAnterior}
                   nombreInsulina={insulinaReferencia.nombre}
                   esSiguienteDosis={todasAplicadas}
                 />
@@ -900,30 +884,44 @@ const verificarPuntoReciente = async (
 
               <Text style={styles.labelZona}>Selecciona la zona y el punto de aplicación:</Text>
 
-              <View style={styles.avisoPuntos}>
-                <Text style={styles.avisoTexto}>
-                   <Text style={{ fontWeight: 'bold' }}>Punto recomendado:</Text> {zonaReferencia.charAt(0).toUpperCase() + zonaReferencia.slice(1)} - Punto {puntoReferencia} 
-                </Text>
-                <Text style={styles.avisoTexto}>
-                   <Text style={{ fontWeight: 'bold' }}>Punto anterior:</Text> {dosisSeleccionada?.insulina.notas || 'No registrado'}
-                </Text>
-              </View>
-              
-              {/* REDUCIMOS UN POCO EL ESPACIO DEL CUERPO HUMANO */}
-              <View style={{ marginVertical: 5 }}>
-                <CuerpoHumano 
-                  zonaSeleccionada={zonaSeleccionada}
-                  puntoSeleccionado={puntoSeleccionado}
-                  onSelectZona={(z) => setZonaSeleccionada(z)}
-                  onSelectPunto={(p) => setPuntoSeleccionado(p)}
-                  puntosUsados={puntosUsados}
-                  puntoAnterior={
-                    dosisSeleccionada?.insulina.notas?.match(/Punto:\s*(\d+)/)?.[1] 
-                      ? parseInt(dosisSeleccionada.insulina.notas.match(/Punto:\s*(\d+)/)![1]) 
-                      : null
-                  }
-                />
-              </View>
+              {dosisSeleccionada && (() => {
+                const rotModal = calcularSiguienteSitio(dosisSeleccionada.insulina.notas);
+                return (
+                  <>
+                    <View style={styles.avisoPuntos}>
+                      <Text style={styles.avisoTexto}>
+                        <Text style={{ fontWeight: 'bold' }}>Punto recomendado:</Text>{' '}
+                        {rotModal.zonaSiguiente.charAt(0).toUpperCase() + rotModal.zonaSiguiente.slice(1)} - Punto {rotModal.puntoSiguiente}
+                      </Text>
+                      <Text style={styles.avisoTexto}>
+                        <Text style={{ fontWeight: 'bold' }}>Punto anterior:</Text>{' '}
+                        {dosisSeleccionada.insulina.notas || 'No registrado'}
+                      </Text>
+                    </View>
+
+                    {/* REDUCIMOS UN POCO EL ESPACIO DEL CUERPO HUMANO */}
+                    <View style={{ marginVertical: 5 }}>
+                      <CuerpoHumano 
+                        zonaSeleccionada={zonaSeleccionada}
+                        puntoSeleccionado={puntoSeleccionado}
+                        onSelectZona={(z) => {
+                          setZonaSeleccionada(z);
+                          if (dosisSeleccionada) {
+                            cargarPuntosUsados(dosisSeleccionada.insulina.id_insulina, z);
+                          }
+                        }}
+                        onSelectPunto={(p) => setPuntoSeleccionado(p)}
+                        puntosUsados={puntosUsados}
+                        puntoAnterior={
+                          zonaSeleccionada === rotModal.zonaAnterior && rotModal.puntoAnterior > 0
+                            ? rotModal.puntoAnterior
+                            : null
+                        }
+                      />
+                    </View>
+                  </>
+                );
+              })()}
 
               {infoPuntoActual.usadoReciente && (
                 <View style={[
